@@ -44,22 +44,15 @@ DOWNLOADER_CLIENT_TLS_METHOD = "TLSv1.2"
 # Logging
 LOG_LEVEL = "INFO"
 
-# Fake user agent
 DOWNLOADER_MIDDLEWARES = {
-    "scrapy.downloadermiddlewares.useragent.UserAgentMiddleware": None,
-    "scrapy_fake_useragent.middleware.RandomUserAgentMiddleware": 400,
-    "scrapy_webarchive.downloadermiddlewares.WaczMiddleware": 450,
-    "scrapy.downloadermiddlewares.redirect.RedirectMiddleware": 600,
+    # "scrapy.downloadermiddlewares.useragent.UserAgentMiddleware": None,
+    # "scrapy_fake_useragent.middleware.RandomUserAgentMiddleware": 400,
+    # "scrapy_webarchive.downloadermiddlewares.WaczMiddleware": 450,
+    # "scrapy.downloadermiddlewares.redirect.RedirectMiddleware": 600,
 }
 USER_AGENT = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.131 Safari/537.36"
 
-# Extensions: enable WACZ exporter
-EXTENSIONS = {
-    "scrapy_webarchive.extensions.WaczExporter": 543,
-}
-
-# Output WACZ directory — IMPORTANT: must start with file://
-# SW_EXPORT_URI = "file:///Users/mattiasalvetti/Desktop/KOF/python/ARGUS/warcs/"
+EXTENSIONS = {"extensions.stats_dump.StatsDump": 500}
 
 # Pipelines (yours)
 ITEM_PIPELINES = {

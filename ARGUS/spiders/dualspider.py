@@ -19,10 +19,26 @@ import urllib
 import urllib.request
 from urllib.request import urlopen
 from urllib.request import Request
+from urllib.parse import urlsplit
 
 from pathlib import Path
 import socket
 from datetime import datetime
+
+
+def _loader_first(loader, field, default=None):
+    """
+    Safely get the first collected value for an ItemLoader field.
+    Falls back to default if the field is empty.
+    """
+    # prefer processed output (if you have processors configured)
+    val = loader.get_output_value(field)
+    if isinstance(val, (list, tuple)):
+        val = val[0] if val else None
+    if val is None or val == "":
+        vals = loader.get_collected_values(field)
+        val = vals[0] if vals else None
+    return val if val not in (None, "") else default
 
 
 class DualSpider(scrapy.Spider):
@@ -218,13 +234,25 @@ class DualSpider(scrapy.Spider):
                 return domain
 
     # function which checks if there has been a redirect from the starting url
+    # def checkRedirectDomain(self, response):
+    #     return (
+    #         tldextract.extract(response.url).registered_domain
+    #         != tldextract.extract(
+    #             response.request.meta.get("download_slot")
+    #         ).registered_domain
+    #     )
     def checkRedirectDomain(self, response):
-        return (
-            tldextract.extract(response.url).registered_domain
-            != tldextract.extract(
-                response.request.meta.get("download_slot")
-            ).registered_domain
-        )
+        url_a = response.url
+        url_b = response.request.meta.get("orig_slot") or urlsplit(response.url).netloc
+
+        # If url_b is missing, just say "no redirect"
+        if not url_a or not url_b:
+            return False
+
+        dom_a = tldextract.extract(url_a).registered_domain
+        dom_b = tldextract.extract(url_b).registered_domain
+
+        return dom_a != dom_b
 
     # function which extracts text using tags
     def extractText(self, response):
@@ -523,7 +551,10 @@ class DualSpider(scrapy.Spider):
             yield scrapy.Request(
                 url,
                 callback=self.parse,
-                meta={"ID": ID},
+                meta={
+                    "ID": ID,
+                    "orig_slot": urlsplit(url).netloc,
+                },
                 dont_filter=True,
                 errback=self.errorback,
             )
@@ -536,7 +567,12 @@ class DualSpider(scrapy.Spider):
             loader.add_value("dl_slot", response.request.meta.get("download_slot"))
             loader.add_value("start_page", "")
             loader.add_value("scraped_urls", "")
-            loader.add_value("redirect", [None])
+            try:
+                loader.add_value("redirect", self.checkRedirectDomain(response))
+            except Exception:
+                loader.add_value("redirect", False)  # fail-safe
+
+            # loader.add_value("redirect", [None])
             loader.add_value("scraped_text", "")
             loader.add_value("title", "")
             loader.add_value("description", "")
@@ -612,6 +648,10 @@ class DualSpider(scrapy.Spider):
         )
         loader.add_value("html_raw", html_clean)
         loader.add_value("dl_slot", response.request.meta.get("download_slot"))
+        loader.replace_value(
+            "dl_slot", response.meta.get("orig_slot") or urlsplit(response.url).netloc
+        )
+
         loader.add_value("redirect", self.checkRedirectDomain(response))
         loader.add_value("start_page", response.url)
         loader.add_value("start_domain", self.subdomainGetter(response))
@@ -679,23 +719,32 @@ class DualSpider(scrapy.Spider):
         urlstack = self.reorderUrlstack(urlstack, self.language, self.prefer_short_urls)
 
         # check urlstack for links to other domains
+        orig_slot = (
+            _loader_first(loader, "dl_slot")
+            or response.request.meta.get("download_slot")
+            or urlsplit(response.url).netloc
+            or response.url
+        )  # last resort; response.url should always exist
+
+        alias_slot = _loader_first(loader, "alias")  # may be None
+
+        orig_domain = self.subdomainGetter(orig_slot).split("www.")[-1]
+        alias_domain = (
+            self.subdomainGetter(alias_slot).split("www.")[-1] if alias_slot else None
+        )
+
         for url in urlstack:
-            url = url.replace("\r\n", "")
-            url = url.replace("\n", "")
+            url = url.replace("\r\n", "").replace("\n", "")
             domain = self.subdomainGetter(url).split("www.")[-1]
-            # if url points to domain that is not the originally requested domain...
-            if domain == self.subdomainGetter(
-                loader.get_collected_values("dl_slot")[0]
-            ):
+
+            # if url points to domain that is the originally requested domain...
+            if domain == orig_domain:
                 continue
             # ...and also not the alias domain...
-            elif domain == self.subdomainGetter(
-                loader.get_collected_values("alias")[0]
-            ):
+            if alias_domain and domain == alias_domain:
                 continue
             # ...add domain to link list
-            else:
-                loader.add_value("links", domain)
+            loader.add_value("links", domain)
 
         # check if the next url in the urlstack is valid
         while len(urlstack) > 0:
@@ -807,6 +856,7 @@ class DualSpider(scrapy.Spider):
                                 "urlstack": urlstack,
                                 "fingerprints": fingerprints,
                                 "handle_httpstatus_all": True,
+                                **response.meta,
                             },
                             dont_filter=True,
                             callback=self.parse_subpage,
@@ -821,6 +871,7 @@ class DualSpider(scrapy.Spider):
                         "urlstack": urlstack,
                         "fingerprints": fingerprints,
                         "handle_httpstatus_all": True,
+                        **response.meta,
                     },
                     dont_filter=True,
                     callback=self.parse_subpage,
