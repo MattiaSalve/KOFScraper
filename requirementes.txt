@@ -1,0 +1,7 @@
+Scrapy
+scrapyd
+scrapyd-client
+scrapy-fake-useragent
+tldextract
+pandas
+pdfminer.six
