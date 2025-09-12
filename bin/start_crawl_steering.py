@@ -61,7 +61,7 @@ def start_crawl():
             on_bad_lines="skip",
             engine="python",
         )
-        data = data.sample(n=300)
+        # data = data.sample(n=300)
         print(data)
 
         # get ISO codes for language detection

@@ -3,17 +3,17 @@ from tempfile import NamedTemporaryFile
 import csv, os, time
 from filelock import FileLock
 
-CSV_PATH = Path("/Volumes/WD_BLACK_SN770/KOF/python/ARGUS/spider_durations.csv")
-LOCK_PATH = CSV_PATH.with_suffix(".csv.lock")
+# CSV_PATH = Path("/Volumes/WD_BLACK_SN770/KOF/python/ARGUS/spider_durations.csv")
 
 
-def save_spider_duration(spider_name: str, duration_seconds: float):
-    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+def save_spider_duration(spider_name: str, duration_seconds: float, csv_path: Path):
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    LOCK_PATH = csv_path.with_suffix(".csv.lock")
 
     with FileLock(str(LOCK_PATH), timeout=30):
         rows = {}
-        if CSV_PATH.exists():
-            with CSV_PATH.open("r", newline="", encoding="utf-8") as f:
+        if csv_path.exists():
+            with csv_path.open("r", newline="", encoding="utf-8") as f:
                 r = csv.reader(f)
                 header = next(r, None)
                 for name, dur in r:
@@ -22,7 +22,7 @@ def save_spider_duration(spider_name: str, duration_seconds: float):
         rows[spider_name] = f"{duration_seconds:.3f}"
 
         with NamedTemporaryFile(
-            "w", delete=False, dir=str(CSV_PATH.parent), newline="", encoding="utf-8"
+            "w", delete=False, dir=str(csv_path.parent), newline="", encoding="utf-8"
         ) as tmp:
             w = csv.writer(tmp)
             w.writerow(["spider", "duration_s"])
@@ -30,4 +30,4 @@ def save_spider_duration(spider_name: str, duration_seconds: float):
                 w.writerow([name, dur])
             tmp_name = tmp.name
 
-        os.replace(tmp_name, CSV_PATH)
+        os.replace(tmp_name, csv_path)

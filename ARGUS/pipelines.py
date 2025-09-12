@@ -1,13 +1,12 @@
 from pathlib import Path
 from scrapy.exporters import CsvItemExporter
 from ARGUS.items import DualExporter
-import ARGUS.data as data
 from bin.durations import save_spider_duration
 
 import time
 
 # import datetime
-from datetime import datetime, timezone
+from datetime import datetime
 import re
 import gzip
 
@@ -117,10 +116,16 @@ class DualPipeline(object):
                     return
 
             # Persist
-            from bin.durations import save_spider_duration
 
             name = getattr(self, "_chunk_id", spider.name)
-            save_spider_duration(f"spider_{name}", float(elapsed))
+            url_chunk_path = Path(spider.url_chunk).resolve()
+            output_dir_light = url_chunk_path.parent / f"run_id={spider.run_id}/parsed"
+
+            save_spider_duration(
+                f"spider_{name}",
+                float(elapsed),
+                output_dir_light / "spider_durations.csv",
+            )
             spider.logger.info("Saved duration for %s: %.3fs", name, elapsed)
 
         except Exception as e:
