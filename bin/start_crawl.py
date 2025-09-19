@@ -62,6 +62,7 @@ def start_crawl(scraping_type):
             for chunk in np.array_split(data, n_url_chunks):
                 chunk.to_csv(script_dir_edit + "/chunks/url_chunk_p" +
                              str(p) + ".csv", sep="\t", encoding="utf-8")
+                print(len(chunk))
                 p += 1
 
             print("Splitted your URLs into ", n_url_chunks, " parts.")

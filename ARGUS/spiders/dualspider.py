@@ -73,7 +73,7 @@ class DualSpider(scrapy.Spider):
             engine="python",
         )
         self.allowed_domains = [
-            url.split("www.")[-1].lower() for url in list(data[url_col])
+            str(url).split("www.")[-1].lower() for url in list(data[url_col])
         ]
         self.start_urls = ["https://" + url.lower() for url in self.allowed_domains]
         self.IDs = [ID for ID in list(data[ID])]

@@ -132,6 +132,10 @@ class DualPipeline(object):
             spider.logger.error("Failed to save duration: %s", e, exc_info=True)
 
     def process_item(self, item, spider):
+        if self._light_rows % 1000 == 0:
+            self.f.flush()
+            self.raw_f.flush()
+
         scraped_text = item["scraped_text"]
 
         for c, webpage in enumerate(scraped_text):
@@ -187,6 +191,7 @@ class DualPipeline(object):
                 "html_raw": item.get("html_raw", [""])[0],
                 # "run_id": getattr(spider, "run_id", "unknown"),
             }
+
             self.raw_exporter.export_item(raw_record)  # <-- correct exporter
             self._raw_rows += 1
 
