@@ -20,6 +20,7 @@ import urllib.request
 from urllib.request import urlopen
 from urllib.request import Request
 from urllib.parse import urlsplit
+import gzip, hashlib
 
 from pathlib import Path
 import socket
@@ -564,46 +565,49 @@ class DualSpider(scrapy.Spider):
         loader = ItemLoader(item=DualCollector())
         if failure.check(HttpError):
             response = failure.value.response
-            loader.add_value("dl_slot", response.request.meta.get("download_slot"))
-            loader.add_value("start_page", "")
-            loader.add_value("scraped_urls", "")
+            loader.add_value("dl_slot", [response.request.meta.get("download_slot")])
+            loader.add_value("start_page", [""])
+            loader.add_value("scraped_urls", [""])
+            loader.add_value("html_path", [""])
             try:
-                loader.add_value("redirect", self.checkRedirectDomain(response))
+                loader.add_value("redirect", [self.checkRedirectDomain(response)])
             except Exception:
                 loader.add_value("redirect", False)  # fail-safe
 
             # loader.add_value("redirect", [None])
-            loader.add_value("scraped_text", "")
-            loader.add_value("title", "")
-            loader.add_value("description", "")
-            loader.add_value("keywords", "")
-            loader.add_value("language", "")
-            loader.add_value("error", response.status)
-            loader.add_value("ID", response.request.meta["ID"])
-            loader.add_value("links", "")
-            loader.add_value("alias", "")
+            loader.add_value("scraped_text", [""])
+            loader.add_value("title", [""])
+            loader.add_value("description", [""])
+            loader.add_value("keywords", [""])
+            loader.add_value("language", [""])
+            loader.add_value("error", [response.status])
+            loader.add_value("ID", [response.request.meta["ID"]])
+            loader.add_value("links", [""])
+            loader.add_value("alias", [""])
             yield loader.load_item()
         elif failure.check(DNSLookupError):
             request = failure.request
-            loader.add_value("dl_slot", request.meta.get("download_slot"))
-            loader.add_value("start_page", "")
-            loader.add_value("scraped_urls", "")
+            loader.add_value("dl_slot", [request.meta.get("download_slot")])
+            loader.add_value("start_page", [""])
+            loader.add_value("scraped_urls", [""])
+            loader.add_value("html_path", [""])
             loader.add_value("redirect", [None])
-            loader.add_value("scraped_text", "")
-            loader.add_value("title", "")
-            loader.add_value("description", "")
-            loader.add_value("keywords", "")
-            loader.add_value("language", "")
-            loader.add_value("error", "DNS")
-            loader.add_value("ID", request.meta["ID"])
-            loader.add_value("links", "")
-            loader.add_value("alias", "")
+            loader.add_value("scraped_text", [""])
+            loader.add_value("title", [""])
+            loader.add_value("description", [""])
+            loader.add_value("keywords", [""])
+            loader.add_value("language", [""])
+            loader.add_value("error", ["DNS"])
+            loader.add_value("ID", [request.meta["ID"]])
+            loader.add_value("links", [""])
+            loader.add_value("alias", [""])
             yield loader.load_item()
         elif failure.check(TimeoutError, TCPTimedOutError):
             request = failure.request
             loader.add_value("dl_slot", request.meta.get("download_slot"))
             loader.add_value("start_page", "")
             loader.add_value("scraped_urls", "")
+            loader.add_value("html_path", [""])
             loader.add_value("redirect", [None])
             loader.add_value("scraped_text", "")
             loader.add_value("title", "")
@@ -620,6 +624,7 @@ class DualSpider(scrapy.Spider):
             loader.add_value("dl_slot", request.meta.get("download_slot"))
             loader.add_value("start_page", "")
             loader.add_value("scraped_urls", "")
+            loader.add_value("html_path", [""])
             loader.add_value("redirect", [None])
             loader.add_value("scraped_text", "")
             loader.add_value("title", "")
@@ -631,6 +636,25 @@ class DualSpider(scrapy.Spider):
             loader.add_value("links", "")
             loader.add_value("alias", "")
             yield loader.load_item()
+
+    def _save_raw_html(self, response, ID):
+        from pathlib import Path
+
+        run_id = getattr(self, "run_id", self.timestamp)
+
+        raw_dir = Path(self.url_chunk).resolve().parent / f"run_id={run_id}/raw_html"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        # deterministic short name by URL hash
+        h = hashlib.md5(response.url.encode("utf-8")).hexdigest()[:10]
+        fname = f"{ID}_{h}.html.gz"
+        fpath = raw_dir / fname
+
+        # write bytes directly (no decode) to a gz file
+        with gzip.open(fpath, "wb") as gzf:
+            gzf.write(response.body)
+
+        return str(fpath)
 
     ##################################################################
     # MAIN PARSE
@@ -646,7 +670,7 @@ class DualSpider(scrapy.Spider):
             .replace("\n", "")
             .replace("\r", "")
         )
-        loader.add_value("html_raw", html_clean)
+        # loader.add_value("html_raw", html_clean)
         loader.add_value("dl_slot", response.request.meta.get("download_slot"))
         loader.replace_value(
             "dl_slot", response.meta.get("orig_slot") or urlsplit(response.url).netloc
@@ -664,7 +688,10 @@ class DualSpider(scrapy.Spider):
         loader.add_value("keywords", [keywords])
         loader.add_value("language", [language])
         loader.add_value("error", "None")
-        loader.add_value("ID", response.request.meta["ID"])
+        ID = response.request.meta["ID"]
+        loader.add_value("ID", [ID])
+        html_path = self._save_raw_html(response, ID)
+        loader.add_value("html_path", [html_path])
         # add alias if there was an initial redirect
         if self.checkRedirectDomain(response):
             loader.add_value("alias", self.subdomainGetter(response).split("www.")[-1])
@@ -955,6 +982,14 @@ class DualSpider(scrapy.Spider):
             else:
                 # revive the loader from the response meta data
                 loader = response.meta["loader"]
+
+                ID = (
+                    loader.get_collected_values("ID")[0]
+                    if loader.get_collected_values("ID")
+                    else response.meta["ID"]
+                )
+                html_path = self._save_raw_html(response, ID)
+                loader.add_value("html_path", [html_path])
 
                 # check whether this request was redirected to an allowed url which is actually another firm
                 if loader.get_collected_values("start_domain")[

@@ -20,9 +20,7 @@ class DualPipeline(object):
 
         output_dir = url_chunk_path.parent
         output_dir_light = url_chunk_path.parent / f"run_id={run_id}/parsed"
-        output_dir_heavy = url_chunk_path.parent / f"run_id={run_id}/raw"
         output_dir_light.mkdir(parents=True, exist_ok=True)
-        output_dir_heavy.mkdir(parents=True, exist_ok=True)
 
         # --- LIGHT CSV ---
         light_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.csv.gz"
@@ -46,32 +44,17 @@ class DualPipeline(object):
             "links",
             "timestamp",
             "url",
-            # "run_id",
+            "html_path",
         ]
         self.exporter.start_exporting()
 
         # --- RAW CSV ---
-        raw_path = output_dir_heavy / f"ARGUS_chunk_{chunk_id}_raw.csv.gz"
-        self.raw_f = gzip.open(raw_path, mode="wb")
-        self.raw_exporter = CsvItemExporter(
-            self.raw_f, encoding="utf-8", delimiter="\t", include_headers_line=True
-        )
-        self.raw_exporter.fields_to_export = [
-            "ID",
-            "dl_rank",
-            "url",
-            "timestamp",
-            "html_raw",
-            # "run_id",
-        ]
-        self.raw_exporter.start_exporting()
 
         self._chunk_id = chunk_id
         self._output_dir = output_dir
         self._tag_pattern = re.compile(r"(\[->.+?<-\] ?)+?")
 
         # (optional) simple counters
-        self._raw_rows = 0
         self._light_rows = 0
         self._t0 = time.perf_counter()
 
@@ -80,12 +63,8 @@ class DualPipeline(object):
         try:
             if hasattr(self, "exporter"):
                 self.exporter.finish_exporting()
-            if hasattr(self, "raw_exporter"):
-                self.raw_exporter.finish_exporting()
             if hasattr(self, "f"):
                 self.f.close()
-            if hasattr(self, "raw_f"):
-                self.raw_f.close()
         except Exception as e:
             spider.logger.error("Error closing exporters: %s", e, exc_info=True)
 
@@ -132,9 +111,8 @@ class DualPipeline(object):
             spider.logger.error("Failed to save duration: %s", e, exc_info=True)
 
     def process_item(self, item, spider):
-        if self._light_rows % 1000 == 0:
+        if self._light_rows % 100 == 0:
             self.f.flush()
-            self.raw_f.flush()
 
         scraped_text = item["scraped_text"]
 
@@ -145,6 +123,7 @@ class DualPipeline(object):
 
             # -------- LIGHT ROW --------
             row = DualExporter()
+            # row = {}
             row["ID"] = item["ID"][0]
             row["dl_rank"] = c
             row["dl_slot"] = (item.get("dl_slot") or [None])[0]
@@ -160,7 +139,7 @@ class DualPipeline(object):
             row["keywords"] = item["keywords"][c].strip()
             row["language"] = item["language"][c].strip()
             row["links"] = list({link for link in item["links"] if link})
-            # row["run_id"] = getattr(spider, "run_id", "unknown")
+            row["html_path"] = item.get("html_path", [""])[c]
 
             tag_pattern = self._tag_pattern
             webpage_text = ""
@@ -181,18 +160,5 @@ class DualPipeline(object):
             )
             self.exporter.export_item(row)
             self._light_rows += 1
-
-            # -------- RAW ROW --------
-            raw_record = {
-                "ID": item["ID"][0],
-                "dl_rank": c,
-                "url": url,
-                "timestamp": timestamp,
-                "html_raw": item.get("html_raw", [""])[0],
-                # "run_id": getattr(spider, "run_id", "unknown"),
-            }
-
-            self.raw_exporter.export_item(raw_record)  # <-- correct exporter
-            self._raw_rows += 1
 
         return item

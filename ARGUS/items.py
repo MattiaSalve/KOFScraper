@@ -73,7 +73,6 @@ class LinkExporter(scrapy.Item):
 
 
 class DualCollector(scrapy.Item):
-    html_raw = scrapy.Field()
     ID = scrapy.Field()
     dl_slot = scrapy.Field()
     start_page = scrapy.Field()
@@ -89,6 +88,7 @@ class DualCollector(scrapy.Item):
     error = scrapy.Field()
     links = scrapy.Field()
     alias = scrapy.Field()
+    html_path = scrapy.Field()
 
     pass
 
@@ -109,6 +109,6 @@ class DualExporter(scrapy.Item):
     language = scrapy.Field()
     links = scrapy.Field()
     alias = scrapy.Field()
-    html_raw = scrapy.Field()
+    html_path = scrapy.Field()
 
     pass
