@@ -116,14 +116,12 @@ class DualPipeline(object):
 
         scraped_text = item["scraped_text"]
 
-        for c, webpage in enumerate(scraped_text):
-            # define url & timestamp ONCE per row
+        for c, webpage_text in enumerate(item["scraped_text"]):
             url = item["scraped_urls"][c]
             timestamp = datetime.fromtimestamp(time.time()).strftime("%c")
 
             # -------- LIGHT ROW --------
             row = DualExporter()
-            # row = {}
             row["ID"] = item["ID"][0]
             row["dl_rank"] = c
             row["dl_slot"] = (item.get("dl_slot") or [None])[0]
@@ -142,22 +140,23 @@ class DualPipeline(object):
             row["html_path"] = item.get("html_path", [""])[c]
 
             tag_pattern = self._tag_pattern
-            webpage_text = ""
-            for tagchunk in webpage:
-                text_piece = " ".join(tagchunk[-1][0].split()).strip()
-                if not text_piece:
-                    continue
-                parts = re.split(tag_pattern, text_piece)
-                acc = ""
-                for i, elem in enumerate(parts):
-                    if i % 2 == 0 and elem.strip().strip('"'):
-                        acc += parts[i - 1] + elem
-                if acc:
-                    webpage_text += ". " + acc
-
-            row["text"] = (
-                webpage_text[2:] if webpage_text.startswith(". ") else webpage_text
-            )
+            # webpage_text = ""
+            # for tagchunk in webpage:
+            #     text_piece = " ".join(tagchunk[-1][0].split()).strip()
+            #     if not text_piece:
+            #         continue
+            #     parts = re.split(tag_pattern, text_piece)
+            #     acc = ""
+            #     for i, elem in enumerate(parts):
+            #         if i % 2 == 0 and elem.strip().strip('"'):
+            #             acc += parts[i - 1] + elem
+            #     if acc:
+            #         webpage_text += ". " + acc
+            #
+            # row["text"] = (
+            # webpage_text[2:] if webpage_text.startswith(". ") else webpage_text
+            # )
+            row["text"] = webpage_text
             self.exporter.export_item(row)
             self._light_rows += 1
 

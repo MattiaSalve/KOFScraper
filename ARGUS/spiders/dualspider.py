@@ -255,200 +255,228 @@ class DualSpider(scrapy.Spider):
 
         return dom_a != dom_b
 
-    # function which extracts text using tags
     def extractText(self, response):
-        text = []
-        # sometimes "content is not text" is returned and causes strange behaviour
+        parts = []
         try:
-            # paragraph
-            text.append(
-                [
-                    "p",
-                    [
-                        "[->p<-] "
-                        + " [->p<-] ".join(response.xpath("//p/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                [
-                    "div",
-                    [
-                        # division
-                        "[->div<-] "
-                        + " [->div<-] ".join(response.xpath("//div/text()").extract())
-                    ],
-                ]
-            )
-            # table row
-            text.append(
-                [
-                    "tr",
-                    [
-                        "[->tr<-] "
-                        + " [->tr<-] ".join(response.xpath("//tr/text()").extract())
-                    ],
-                ]
-            )
-            # table data
-            text.append(
-                [
-                    "td",
-                    [
-                        "[->td<-] "
-                        + " [->td<-] ".join(response.xpath("//td/text()").extract())
-                    ],
-                ]
-            )
-            # table header
-            text.append(
-                [
-                    "th",
-                    [
-                        "[->th<-] "
-                        + " [->th<-] ".join(response.xpath("//th/text()").extract())
-                    ],
-                ]
-            )
-            # font size, css should be used (only relevant for old websites)
-            text.append(
-                [
-                    "font",
-                    [
-                        "[->font<-] "
-                        + " [->font<-] ".join(response.xpath("//font/text()").extract())
-                    ],
-                ]
-            )
-            # list item
-            text.append(
-                [
-                    "li",
-                    [
-                        "[->li<-] "
-                        + " [->li<-] ".join(response.xpath("//li/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                [
-                    "small",
-                    [
-                        "[->small<-] "
-                        + " [->small<-] ".join(
-                            # barely emphasized text
-                            response.xpath("//small/text()").extract()
-                        )
-                    ],
-                ]
-            )
-            text.append(
-                [
-                    "strong",
-                    [
-                        "[->strong<-] "
-                        + " [->strong<-] ".join(
-                            # strongly emphasized text
-                            response.xpath("//strong/text()").extract()
-                        )
-                    ],
-                ]
-            )
-            text.append(
-                # header
-                [
-                    "h1",
-                    [
-                        "[->h1<-] "
-                        + " [->h1<-] ".join(response.xpath("//h1/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                # header
-                [
-                    "h2",
-                    [
-                        "[->h2<-] "
-                        + " [->h2<-] ".join(response.xpath("//h2/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                # header
-                [
-                    "h3",
-                    [
-                        "[->h3<-] "
-                        + " [->h3<-] ".join(response.xpath("//h3/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                # header
-                [
-                    "h4",
-                    [
-                        "[->h4<-] "
-                        + " [->h4<-] ".join(response.xpath("//h4/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                # header
-                [
-                    "h5",
-                    [
-                        "[->h5<-] "
-                        + " [->h5<-] ".join(response.xpath("//h5/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                # header
-                [
-                    "h6",
-                    [
-                        "[->h6<-] "
-                        + " [->h6<-] ".join(response.xpath("//h6/text()").extract())
-                    ],
-                ]
-            )
-            text.append(
-                [
-                    "span",
-                    [
-                        "[->span<-] "
-                        + " [->span<-] ".join(
-                            # division for styling
-                            response.xpath("//span/text()").extract()
-                        )
-                    ],
-                ]
-            )
-            # bold text
-            text.append(
-                [
-                    "b",
-                    [
-                        "[->b<-] "
-                        + " [->b<-] ".join(response.xpath("//b/text()").extract())
-                    ],
-                ]
-            )
-            # emphasized text
-            text.append(
-                [
-                    "em",
-                    [
-                        "[->em<-] "
-                        + " [->em<-] ".join(response.xpath("//em/text()").extract())
-                    ],
-                ]
-            )
-        except:
-            text.append(["leer", ["[->leer<-] leer"]])
-        return text
+            parts += response.xpath("//p/text()").getall()
+            parts += response.xpath("//div/text()").getall()
+            parts += response.xpath("//tr/text()").getall()
+            parts += response.xpath("//td/text()").getall()
+            parts += response.xpath("//th/text()").getall()
+            parts += response.xpath("//font/text()").getall()
+            parts += response.xpath("//li/text()").getall()
+            parts += response.xpath("//small/text()").getall()
+            parts += response.xpath("//strong/text()").getall()
+            parts += response.xpath("//h1/text()").getall()
+            parts += response.xpath("//h2/text()").getall()
+            parts += response.xpath("//h3/text()").getall()
+            parts += response.xpath("//h4/text()").getall()
+            parts += response.xpath("//h5/text()").getall()
+            parts += response.xpath("//h6/text()").getall()
+            parts += response.xpath("//span/text()").getall()
+            parts += response.xpath("//b/text()").getall()
+            parts += response.xpath("//em/text()").getall()
+
+        except Exception:
+            pass
+
+        cleaned = " ".join(" ".join(parts).split())
+        return cleaned
+
+    # function which extracts text using tags
+    # def extractText(self, response):
+    #     text = []
+    #     # sometimes "content is not text" is returned and causes strange behaviour
+    #     try:
+    #         # paragraph
+    #         text.append(
+    #             [
+    #                 "p",
+    #                 [
+    #                     "[->p<-] "
+    #                     + " [->p<-] ".join(response.xpath("//p/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             [
+    #                 "div",
+    #                 [
+    #                     # division
+    #                     "[->div<-] "
+    #                     + " [->div<-] ".join(response.xpath("//div/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         # table row
+    #         text.append(
+    #             [
+    #                 "tr",
+    #                 [
+    #                     "[->tr<-] "
+    #                     + " [->tr<-] ".join(response.xpath("//tr/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         # table data
+    #         text.append(
+    #             [
+    #                 "td",
+    #                 [
+    #                     "[->td<-] "
+    #                     + " [->td<-] ".join(response.xpath("//td/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         # table header
+    #         text.append(
+    #             [
+    #                 "th",
+    #                 [
+    #                     "[->th<-] "
+    #                     + " [->th<-] ".join(response.xpath("//th/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         # font size, css should be used (only relevant for old websites)
+    #         text.append(
+    #             [
+    #                 "font",
+    #                 [
+    #                     "[->font<-] "
+    #                     + " [->font<-] ".join(response.xpath("//font/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         # list item
+    #         text.append(
+    #             [
+    #                 "li",
+    #                 [
+    #                     "[->li<-] "
+    #                     + " [->li<-] ".join(response.xpath("//li/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             [
+    #                 "small",
+    #                 [
+    #                     "[->small<-] "
+    #                     + " [->small<-] ".join(
+    #                         # barely emphasized text
+    #                         response.xpath("//small/text()").extract()
+    #                     )
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             [
+    #                 "strong",
+    #                 [
+    #                     "[->strong<-] "
+    #                     + " [->strong<-] ".join(
+    #                         # strongly emphasized text
+    #                         response.xpath("//strong/text()").extract()
+    #                     )
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             # header
+    #             [
+    #                 "h1",
+    #                 [
+    #                     "[->h1<-] "
+    #                     + " [->h1<-] ".join(response.xpath("//h1/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             # header
+    #             [
+    #                 "h2",
+    #                 [
+    #                     "[->h2<-] "
+    #                     + " [->h2<-] ".join(response.xpath("//h2/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             # header
+    #             [
+    #                 "h3",
+    #                 [
+    #                     "[->h3<-] "
+    #                     + " [->h3<-] ".join(response.xpath("//h3/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             # header
+    #             [
+    #                 "h4",
+    #                 [
+    #                     "[->h4<-] "
+    #                     + " [->h4<-] ".join(response.xpath("//h4/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             # header
+    #             [
+    #                 "h5",
+    #                 [
+    #                     "[->h5<-] "
+    #                     + " [->h5<-] ".join(response.xpath("//h5/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             # header
+    #             [
+    #                 "h6",
+    #                 [
+    #                     "[->h6<-] "
+    #                     + " [->h6<-] ".join(response.xpath("//h6/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         text.append(
+    #             [
+    #                 "span",
+    #                 [
+    #                     "[->span<-] "
+    #                     + " [->span<-] ".join(
+    #                         # division for styling
+    #                         response.xpath("//span/text()").extract()
+    #                     )
+    #                 ],
+    #             ]
+    #         )
+    #         # bold text
+    #         text.append(
+    #             [
+    #                 "b",
+    #                 [
+    #                     "[->b<-] "
+    #                     + " [->b<-] ".join(response.xpath("//b/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #         # emphasized text
+    #         text.append(
+    #             [
+    #                 "em",
+    #                 [
+    #                     "[->em<-] "
+    #                     + " [->em<-] ".join(response.xpath("//em/text()").extract())
+    #                 ],
+    #             ]
+    #         )
+    #     except:
+    #         text.append(["leer", ["[->leer<-] leer"]])
+    #     return text
 
     # function which extracts and returns meta information
     def extractHeader(self, response):
