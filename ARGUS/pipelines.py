@@ -1,175 +1,238 @@
 from pathlib import Path
-from scrapy.exporters import CsvItemExporter
 from ARGUS.items import DualExporter
 from bin.durations import save_spider_duration
-import pandas as pd
 
 import time
-
-# import datetime
 from datetime import datetime
 import re
-import gzip
+import json
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-
 class DualPipeline(object):
+    _BATCH_SIZE = 2000
+
     def open_spider(self, spider):
         url_chunk_path = Path(spider.url_chunk).resolve()
         chunk_id = url_chunk_path.stem.split("_")[-1]
-        run_id = datetime.now().strftime("%d.%m.%Y")
+        run_id = datetime.now().strftime("%d.%m.%Y-%H%M")
         spider.run_id = run_id
 
         output_dir = url_chunk_path.parent
-        output_dir_light = url_chunk_path.parent / f"run_id={run_id}/parsed"
+        output_dir_light = output_dir / f"run_id={run_id}/parsed"
         output_dir_light.mkdir(parents=True, exist_ok=True)
 
         self._parquet_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.parquet"
-        self._rows = []  # collect rows as dicts
-        self._light_rows = 0
+        self._quarantine_path = (
+            output_dir_light / f"ARGUS_chunk_{chunk_id}.quarantine.jsonl"
+        )
 
-        # --- LIGHT CSV ---
-        # light_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.csv.gz"
-        # self.f = gzip.open(light_path, mode="wb")
-        # self.exporter = CsvItemExporter(
-        #     self.f, encoding="utf-8", delimiter="\t", include_headers_line=True
-        # )
-        # self.exporter.fields_to_export = [
-        #     "ID",
-        #     "dl_rank",
-        #     "dl_slot",
-        #     "alias",
-        #     "error",
-        #     "redirect",
-        #     "start_page",
-        #     "title",
-        #     "keywords",
-        #     "description",
-        #     "language",
-        #     "text",
-        #     "links",
-        #     "timestamp",
-        #     "url",
-        #     "html_path",
-        # ]
-        # self.exporter.start_exporting()
+        # Explicit, stable schema (stringy on purpose; only dl_rank is int)
+        self._schema = pa.schema(
+            [
+                ("ID", pa.string()),
+                ("dl_rank", pa.int64()),
+                ("dl_slot", pa.string()),  # keep flexible
+                ("alias", pa.string()),
+                ("error", pa.string()),
+                ("redirect", pa.string()),
+                ("start_page", pa.string()),
+                ("url", pa.string()),
+                ("timestamp", pa.string()),
+                ("title", pa.string()),
+                ("description", pa.string()),
+                ("keywords", pa.string()),
+                ("language", pa.string()),
+                ("links", pa.list_(pa.string())),
+                ("html_path", pa.string()),
+                ("text", pa.string()),
+            ]
+        )
 
-        # --- RAW CSV ---
-
-        self._chunk_id = chunk_id
-        self._output_dir = output_dir
-        self._tag_pattern = re.compile(r"(\[->.+?<-\] ?)+?")
-
-        # (optional) simple counters
+        self._rows = []
+        self._writer = None
+        self._tag_pattern = re.compile(r"<.*?>|&(?:[a-z0-9]+|#\d+);")
         self._t0 = time.perf_counter()
 
-    def close_spider(self, spider):
-        # 1) Close exporters first (flush)
-        for row in self._rows:
-            for key, value in row.items():
-                if value == 'None':  # string 'None'
-                    row[key] = None
-        try:
-            table = pa.Table.from_pylist(self._rows)
-            pq.write_table(table, self._parquet_path, compression='zstd')
-            spider.logger.info('Wrote %d rows to %s', len(self._rows), self._parquet_path)
-        except Exception as e:
-            spider.logger.error("Error closing exporters: %s", e, exc_info=True)
+        self._written_count = 0
+        self._dropped_count = 0
 
+        spider.logger.info("Parquet target: %s", self._parquet_path)
+
+    # ---------- helpers
+
+    def _safe_idx(self, seq, i, default=""):
+        try:
+            if seq is None:
+                return default
+            return seq[i]
+        except Exception:
+            return default
+
+    def _to_str(self, v):
+        if v is None:
+            return None
+        # lists/dicts (except 'links' where we handle separately)
+        if isinstance(v, (list, tuple)):
+            # join strings cleanly; else repr for mixed types
+            if all(isinstance(x, str) or x is None for x in v):
+                return " | ".join([x for x in v if x])
+            return str(v)
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                return v.decode("utf-8", "replace")
+            except Exception:
+                return v.decode("latin-1", "replace")
+        return str(v)
+
+    def _to_links(self, v):
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            v = [v]
+        out = []
+        for x in v:
+            if x is None:
+                continue
+            out.append(str(x))
+        # dedupe while preserving order
+        seen = set()
+        uniq = []
+        for x in out:
+            if x not in seen:
+                seen.add(x)
+                uniq.append(x)
+        return uniq
+
+    def _open_writer(self):
+        if self._writer is None:
+            self._writer = pq.ParquetWriter(
+                str(self._parquet_path),
+                self._schema,
+                compression="zstd",
+                use_dictionary=True,
+            )
+
+    def _write_table(self, table, spider):
+        self._open_writer()
+        self._writer.write_table(table)
+        self._written_count += table.num_rows
+
+    def _flush_batch(self, spider):
+        if not self._rows:
+            return
+        try:
+            table = pa.Table.from_pylist(self._rows, schema=self._schema)
+            self._write_table(table, spider)
+            self._rows.clear()
+        except Exception as e:
+            spider.logger.error(
+                "Batch write failed; attempting per-row salvage: %s", e, exc_info=True
+            )
+            # salvage row-by-row; quarantine the truly bad ones
+            self._open_writer()
+            with self._quarantine_path.open("a", encoding="utf-8") as qf:
+                keep = []
+                for r in self._rows:
+                    try:
+                        t = pa.Table.from_pylist([r], schema=self._schema)
+                        self._writer.write_table(t)
+                        self._written_count += 1
+                    except Exception as row_e:
+                        self._dropped_count += 1
+                        spider.logger.warning("Dropping 1 bad row: %s", row_e)
+                        qf.write(json.dumps(r, ensure_ascii=False) + "\n")
+                # after salvage, clear buffer
+                self._rows.clear()
+
+    # ---------- scrapy hooks
+
+    def process_item(self, item, spider):
+        scraped_texts = item.get("scraped_text") or []
+        num_pages = len(scraped_texts)
+
+        for c in range(num_pages):
+            url = self._safe_idx(item.get("scraped_urls"), c, "")
+            timestamp = datetime.fromtimestamp(time.time()).strftime("%c")
+
+            row = DualExporter()
+            # single-value / vector fields
+            row["ID"] = self._to_str(self._safe_idx(item.get("ID"), 0, ""))
+            row["dl_rank"] = int(c)  # guaranteed int
+            row["dl_slot"] = self._to_str(self._safe_idx(item.get("dl_slot"), 0, None))
+            row["alias"] = self._to_str(self._safe_idx(item.get("alias"), 0, ""))
+            row["error"] = self._to_str(item.get("error"))  # may be list/string/None
+            row["redirect"] = self._to_str(self._safe_idx(item.get("redirect"), 0, ""))
+            row["start_page"] = self._to_str(
+                self._safe_idx(item.get("start_page"), 0, "")
+            )
+
+            row["url"] = self._to_str(url)
+            row["timestamp"] = timestamp
+
+            # per-page lists
+            row["title"] = self._to_str(
+                self._safe_idx(item.get("title"), c, "")
+            ).strip()
+            row["description"] = self._to_str(
+                self._safe_idx(item.get("description"), c, "")
+            ).strip()
+            row["keywords"] = self._to_str(
+                self._safe_idx(item.get("keywords"), c, "")
+            ).strip()
+            row["language"] = self._to_str(
+                self._safe_idx(item.get("language"), c, "")
+            ).strip()
+            row["links"] = self._to_links(item.get("links") or [])
+            row["html_path"] = self._to_str(
+                self._safe_idx(item.get("html_path"), c, "")
+            )
+
+            text_val = self._safe_idx(scraped_texts, c, "")
+            # If you want to strip HTML entities/tags, do it here. Keeping as-is:
+            row["text"] = self._to_str(text_val)
+
+            self._rows.append(dict(row))
+
+            # periodic flush
+            if (self._written_count + len(self._rows)) % self._BATCH_SIZE == 0:
+                self._flush_batch(spider)
+
+        return item
+
+    def close_spider(self, spider):
+        # final flush
+        try:
+            self._flush_batch(spider)
+            if self._writer is not None:
+                self._writer.close()
+        except Exception as e:
+            spider.logger.error("Error finalizing parquet: %s", e, exc_info=True)
+
+        # timing / stats
         try:
             stats = spider.crawler.stats
-
-            # Try Scrapy's own value first
             elapsed = stats.get_value("elapsed_time_seconds")
-
             if elapsed is None:
                 start_time = stats.get_value("start_time")
                 if start_time:
-                    # compute using start_time and 'now'
                     now = datetime.now(tz=getattr(start_time, "tzinfo", None))
                     elapsed = (now - start_time).total_seconds()
-                    spider.logger.info(
-                        "Computed elapsed from start_time: %.3fs", elapsed
-                    )
-                elif hasattr(self, "_t0"):
-                    elapsed = time.perf_counter() - self._t0
-                    spider.logger.info(
-                        "Computed elapsed from perf_counter: %.3fs", elapsed
-                    )
                 else:
-                    spider.logger.warning(
-                        "Could not determine duration; skipping write"
-                    )
-                    return
-
-            # Persist
-
-            name = getattr(self, "_chunk_id", spider.name)
-            url_chunk_path = Path(spider.url_chunk).resolve()
-            output_dir_light = url_chunk_path.parent / f"run_id={spider.run_id}/parsed"
-
-            save_spider_duration(
-                f"spider_{name}",
-                float(elapsed),
-                output_dir_light / "spider_durations.csv",
-            )
-            spider.logger.info("Saved duration for %s: %.3fs", name, elapsed)
-
+                    elapsed = time.perf_counter() - self._t0
+            # save_spider_duration(spider.name, elapsed)
         except Exception as e:
-            spider.logger.error("Failed to save duration: %s", e, exc_info=True)
+            spider.logger.error("Error saving duration: %s", e, exc_info=True)
 
-    def process_item(self, item, spider):
-        # if self._light_rows % 100 == 0:
-        #     self.f.flush()
-
-        scraped_text = item["scraped_text"]
-
-        for c, webpage_text in enumerate(item["scraped_text"]):
-            url = item["scraped_urls"][c]
-            timestamp = datetime.fromtimestamp(time.time()).strftime("%c")
-
-            # -------- LIGHT ROW --------
-            row = DualExporter()
-            row["ID"] = item["ID"][0]
-            row["dl_rank"] = c
-            row["dl_slot"] = (item.get("dl_slot") or [None])[0]
-            row["alias"] = item["alias"][0]
-            row["error"] = item["error"]
-            row["redirect"] = item["redirect"][0]
-            row["start_page"] = item["start_page"][0]
-            row["url"] = url
-            row["timestamp"] = timestamp
-
-            row["title"] = item["title"][c].strip()
-            row["description"] = item["description"][c].strip()
-            row["keywords"] = item["keywords"][c].strip()
-            row["language"] = item["language"][c].strip()
-            row["links"] = list({link for link in item["links"] if link})
-            row["html_path"] = item.get("html_path", [""])[c]
-
-            tag_pattern = self._tag_pattern
-            # webpage_text = ""
-            # for tagchunk in webpage:
-            #     text_piece = " ".join(tagchunk[-1][0].split()).strip()
-            #     if not text_piece:
-            #         continue
-            #     parts = re.split(tag_pattern, text_piece)
-            #     acc = ""
-            #     for i, elem in enumerate(parts):
-            #         if i % 2 == 0 and elem.strip().strip('"'):
-            #             acc += parts[i - 1] + elem
-            #     if acc:
-            #         webpage_text += ". " + acc
-            #
-            # row["text"] = (
-            # webpage_text[2:] if webpage_text.startswith(". ") else webpage_text
-            # )
-            row["text"] = webpage_text
-            # self.exporter.export_item(row)
-            self._rows.append(dict(row))
-            self._light_rows += 1
-
-        return item
+        spider.logger.info(
+            "Parquet done: wrote %d rows%s%s",
+            self._written_count,
+            (
+                f", dropped {self._dropped_count} (see {self._quarantine_path.name})"
+                if self._dropped_count
+                else ""
+            ),
+            f", file: {self._parquet_path}" if self._written_count else "",
+        )
