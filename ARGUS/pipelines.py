@@ -29,6 +29,45 @@ class DualPipeline(object):
             output_dir_light / f"ARGUS_chunk_{chunk_id}.quarantine.jsonl"
         )
 
+        _STRING_COLS = {
+            "ID",
+            "dl_slot",
+            "alias",
+            "error",
+            "redirect",
+            "start_page",
+            "url",
+            "timestamp",
+            "title",
+            "description",
+            "keywords",
+            "language",
+            "html_path",
+            "text",
+            "links",
+        }
+
+        def _coerce_str(self, v):
+            if v is None:
+                return None
+            if isinstance(v, (bytes, bytearray)):
+                try:
+                    return v.decode("utf-8", "replace")
+                except Exception:
+                    return v.decode("latin-1", "replace")
+            if isinstance(v, (list, tuple, set, dict)):
+                import json
+
+                return json.dumps(v, ensure_ascii=False)  # <- ALWAYS a string now
+            return str(v)
+
+        def _sanitize_row(self, row_dict):
+            r = dict(row_dict)
+            r["dl_rank"] = int(r.get("dl_rank") or 0)
+            for k in self._STRING_COLS:
+                r[k] = self._coerce_str(r.get(k))
+            return r
+
         # Explicit, stable schema (stringy on purpose; only dl_rank is int)
         self._schema = pa.schema(
             [
@@ -62,6 +101,44 @@ class DualPipeline(object):
         spider.logger.info("Parquet target: %s", self._parquet_path)
 
     # ---------- helpers
+    _STRING_COLS = {
+        "ID",
+        "dl_slot",
+        "alias",
+        "error",
+        "redirect",
+        "start_page",
+        "url",
+        "timestamp",
+        "title",
+        "description",
+        "keywords",
+        "language",
+        "html_path",
+        "text",
+        "links",
+    }
+
+    def _coerce_str(self, v):
+        if v is None:
+            return None
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                return v.decode("utf-8", "replace")
+            except Exception:
+                return v.decode("latin-1", "replace")
+        if isinstance(v, (list, tuple, set, dict)):
+            import json
+
+            return json.dumps(v, ensure_ascii=False)  # <- ALWAYS a string now
+        return str(v)
+
+    def _sanitize_row(self, row_dict):
+        r = dict(row_dict)
+        r["dl_rank"] = int(r.get("dl_rank") or 0)
+        for k in self._STRING_COLS:
+            r[k] = self._coerce_str(r.get(k))
+        return r
 
     def _safe_idx(self, seq, i, default=""):
         try:
@@ -125,8 +202,8 @@ class DualPipeline(object):
             return
         try:
             table = pa.Table.from_pylist(self._rows, schema=self._schema)
-            self._write_table(table, spider)
-            self._rows.clear()
+            self._open_writer()
+            self._writer.write_table(table)
         except Exception as e:
             spider.logger.error(
                 "Batch write failed; attempting per-row salvage: %s", e, exc_info=True
