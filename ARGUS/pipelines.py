@@ -2,6 +2,7 @@ from pathlib import Path
 from scrapy.exporters import CsvItemExporter
 from ARGUS.items import DualExporter
 from bin.durations import save_spider_duration
+import pandas as pd
 
 import time
 
@@ -10,43 +11,51 @@ from datetime import datetime
 import re
 import gzip
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+
 
 class DualPipeline(object):
     def open_spider(self, spider):
         url_chunk_path = Path(spider.url_chunk).resolve()
         chunk_id = url_chunk_path.stem.split("_")[-1]
-        run_id = datetime.now().strftime("%d.%m.%Y-%H%M")
+        run_id = datetime.now().strftime("%d.%m.%Y")
         spider.run_id = run_id
 
         output_dir = url_chunk_path.parent
         output_dir_light = url_chunk_path.parent / f"run_id={run_id}/parsed"
         output_dir_light.mkdir(parents=True, exist_ok=True)
 
+        self._parquet_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.parquet"
+        self._rows = []  # collect rows as dicts
+        self._light_rows = 0
+
         # --- LIGHT CSV ---
-        light_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.csv.gz"
-        self.f = gzip.open(light_path, mode="wb")
-        self.exporter = CsvItemExporter(
-            self.f, encoding="utf-8", delimiter="\t", include_headers_line=True
-        )
-        self.exporter.fields_to_export = [
-            "ID",
-            "dl_rank",
-            "dl_slot",
-            "alias",
-            "error",
-            "redirect",
-            "start_page",
-            "title",
-            "keywords",
-            "description",
-            "language",
-            "text",
-            "links",
-            "timestamp",
-            "url",
-            "html_path",
-        ]
-        self.exporter.start_exporting()
+        # light_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.csv.gz"
+        # self.f = gzip.open(light_path, mode="wb")
+        # self.exporter = CsvItemExporter(
+        #     self.f, encoding="utf-8", delimiter="\t", include_headers_line=True
+        # )
+        # self.exporter.fields_to_export = [
+        #     "ID",
+        #     "dl_rank",
+        #     "dl_slot",
+        #     "alias",
+        #     "error",
+        #     "redirect",
+        #     "start_page",
+        #     "title",
+        #     "keywords",
+        #     "description",
+        #     "language",
+        #     "text",
+        #     "links",
+        #     "timestamp",
+        #     "url",
+        #     "html_path",
+        # ]
+        # self.exporter.start_exporting()
 
         # --- RAW CSV ---
 
@@ -55,16 +64,14 @@ class DualPipeline(object):
         self._tag_pattern = re.compile(r"(\[->.+?<-\] ?)+?")
 
         # (optional) simple counters
-        self._light_rows = 0
         self._t0 = time.perf_counter()
 
     def close_spider(self, spider):
         # 1) Close exporters first (flush)
         try:
-            if hasattr(self, "exporter"):
-                self.exporter.finish_exporting()
-            if hasattr(self, "f"):
-                self.f.close()
+            table = pa.Table.from_pylist(self._rows)
+            pq.write_table(table, self._parquet_path, compression='zstd')
+            spider.logger.info('Wrote %d rows to %s', len(self._rows), self._parquet_path)
         except Exception as e:
             spider.logger.error("Error closing exporters: %s", e, exc_info=True)
 
@@ -111,8 +118,8 @@ class DualPipeline(object):
             spider.logger.error("Failed to save duration: %s", e, exc_info=True)
 
     def process_item(self, item, spider):
-        if self._light_rows % 100 == 0:
-            self.f.flush()
+        # if self._light_rows % 100 == 0:
+        #     self.f.flush()
 
         scraped_text = item["scraped_text"]
 
@@ -157,7 +164,8 @@ class DualPipeline(object):
             # webpage_text[2:] if webpage_text.startswith(". ") else webpage_text
             # )
             row["text"] = webpage_text
-            self.exporter.export_item(row)
+            # self.exporter.export_item(row)
+            self._rows.append(dict(row))
             self._light_rows += 1
 
         return item

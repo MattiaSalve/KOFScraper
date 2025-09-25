@@ -59,6 +59,7 @@ class DualSpider(scrapy.Spider):
     ):
         super(DualSpider, self).__init__(*args, **kwargs)
 
+        self._agg = {}
         self.url_chunk = url_chunk
         chunk_path = Path(url_chunk).resolve()
         self.chunk_id = chunk_path.stem.split("_")[-1]
@@ -747,11 +748,14 @@ class DualSpider(scrapy.Spider):
         # ...and safe them to a urlstack
         urlstack = [response.urljoin(url) for url in urls]
 
-        # attach the urlstack, the loader, and the fingerprints to the response...
-        response.meta["urlstack"] = urlstack
-        response.meta["loader"] = loader
-        response.meta["fingerprints"] = fingerprints
-        # ...and send it over to the processURLstack function
+        response.request.meta.setdefault("agg_key", fingerprint(response.request))
+        k = response.request.meta["agg_key"]
+        self._agg[k] = {
+            "loader" : loader,
+            "urlstack" : urlstack,
+            "fingerprints" : fingerprints,
+        }
+
         return self.processURLstack(response)
 
     ##################################################################
@@ -759,11 +763,11 @@ class DualSpider(scrapy.Spider):
     ##################################################################
 
     def processURLstack(self, response):
-        # get meta data from response object to revive dragged stuff
-        meta = response.request.meta
-        loader = meta["loader"]
-        urlstack = meta["urlstack"]
-        fingerprints = meta["fingerprints"]
+        k = response.request.meta["agg_key"]
+        state = self._agg[k]
+        loader = state["loader"]
+        urlstack = state["urlstack"]
+        fingerprints = state["fingerprints"]
 
         # check whether max number of websites has been scraped for this website
         if self.site_limit != 0:
@@ -907,9 +911,6 @@ class DualSpider(scrapy.Spider):
                         yield scrapy.Request(
                             urlstack.pop(0),
                             meta={
-                                "loader": loader,
-                                "urlstack": urlstack,
-                                "fingerprints": fingerprints,
                                 "handle_httpstatus_all": True,
                                 **response.meta,
                             },
@@ -936,18 +937,20 @@ class DualSpider(scrapy.Spider):
         # if there are no urls left in the urlstack, the website was scraped completely and the item can be sent to the pipeline
         else:
             yield loader.load_item()
+            del self._agg[k]
 
     ##################################################################
     # PARSE SUB PAGE
     ##################################################################
 
     def parse_subpage(self, response):
-        # check again
-        if fingerprint(response.request) in response.meta["fingerprints"]:
+        
+        k = response.request.meta["agg_key"]
+        state = self._agg[k]
+        if fingerprint(response.request) in state["fingerprints"]:
             return self.processURLstack(response)
+        state["fingerprints"].add(fingerprint(response.request))
 
-        # save the fingerprint to mark the page as read
-        response.meta["fingerprints"].add(fingerprint(response.request))
 
         # try to catch some errors
         try:
@@ -965,6 +968,8 @@ class DualSpider(scrapy.Spider):
             if response.status == 301:
                 # revive the loader from the response meta data
                 loader = response.meta["loader"]
+                k = response.request.meta["agg_key"]
+                loader = self._agg[k]["loader"]
 
                 # check whether this request was redirected to a allowed url which is actually another firm
                 if loader.get_collected_values("start_domain")[
@@ -980,6 +985,8 @@ class DualSpider(scrapy.Spider):
                 )
                 for url in urls:
                     response.meta["urlstack"].append(response.urljoin(url))
+                    k = response.request.meta["agg_key"]
+                    self._agg[k]["urlstack"].append(response.urljoin(url))
 
                 # pass back the updated urlstack
                 return self.processURLstack(response)
@@ -987,6 +994,8 @@ class DualSpider(scrapy.Spider):
             if response.status == 302:
                 # revive the loader from the response meta data
                 loader = response.meta["loader"]
+                k = response.request.meta["agg_key"]
+                loader = self._agg[k]["loader"]
 
                 # check whether this request was redirected to a allowed url which is actually another firm
                 if loader.get_collected_values("start_domain")[
@@ -1002,6 +1011,8 @@ class DualSpider(scrapy.Spider):
                 )
                 for url in urls:
                     response.meta["urlstack"].append(response.urljoin(url))
+                    k = response.request.meta["agg_key"]
+                    self._agg[k]["urlstack"].append(response.urljoin(url))
 
                 # pass back the updated urlstack
                 return self.processURLstack(response)
@@ -1010,6 +1021,8 @@ class DualSpider(scrapy.Spider):
             else:
                 # revive the loader from the response meta data
                 loader = response.meta["loader"]
+                k = response.request.meta["agg_key"]
+                loader = self._agg[k]["loader"]
 
                 ID = (
                     loader.get_collected_values("ID")[0]
@@ -1033,6 +1046,9 @@ class DualSpider(scrapy.Spider):
                 )
                 for url in urls:
                     response.meta["urlstack"].append(response.urljoin(url))
+                    k = response.request.meta["agg_key"]
+                    self._agg[k]["urlstack"].append(response.urljoin(url))
+
 
                 # add info to collector item
                 loader.replace_value(
