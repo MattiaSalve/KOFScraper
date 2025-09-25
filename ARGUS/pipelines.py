@@ -68,6 +68,10 @@ class DualPipeline(object):
 
     def close_spider(self, spider):
         # 1) Close exporters first (flush)
+        for row in self._rows:
+            for key, value in row.items():
+                if value == 'None':  # string 'None'
+                    row[key] = None
         try:
             table = pa.Table.from_pylist(self._rows)
             pq.write_table(table, self._parquet_path, compression='zstd')

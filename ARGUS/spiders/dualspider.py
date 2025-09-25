@@ -5,10 +5,13 @@ from ARGUS.items import DualCollector
 from scrapy.loader import ItemLoader
 from scrapy.utils.request import fingerprint
 from scrapy.downloadermiddlewares.offsite import OffsiteMiddleware
-import re
 from scrapy.spidermiddlewares.httperror import HttpError
 from twisted.internet.error import DNSLookupError
 from twisted.internet.error import TimeoutError, TCPTimedOutError
+from twisted.python.failure import Failure
+import hashlib
+import gzip
+
 import pandas as pd
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 from pdfminer.converter import TextConverter
@@ -20,7 +23,6 @@ import urllib.request
 from urllib.request import urlopen
 from urllib.request import Request
 from urllib.parse import urlsplit
-import gzip, hashlib
 
 from pathlib import Path
 import socket
@@ -60,6 +62,7 @@ class DualSpider(scrapy.Spider):
         super(DualSpider, self).__init__(*args, **kwargs)
 
         self._agg = {}
+        self.rows = []
         self.url_chunk = url_chunk
         chunk_path = Path(url_chunk).resolve()
         self.chunk_id = chunk_path.stem.split("_")[-1]
@@ -768,6 +771,11 @@ class DualSpider(scrapy.Spider):
         loader = state["loader"]
         urlstack = state["urlstack"]
         fingerprints = state["fingerprints"]
+
+
+        if isinstance(response, Failure):
+            self.logger.warning(f"Request failed: {response}")
+            return
 
         # check whether max number of websites has been scraped for this website
         if self.site_limit != 0:

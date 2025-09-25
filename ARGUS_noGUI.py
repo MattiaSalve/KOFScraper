@@ -28,7 +28,7 @@ class argus_settings:
     url_col = "url"  # column with URLs
     lang = "German"  # language
     n_cores = 10  # number of cores
-    limit = 10  # scraping limit
+    limit = 50  # scraping limit
     log_level = "ERROR"
     prefer_short_urls = "on"
     pdfscrape = "off"
