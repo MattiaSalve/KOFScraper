@@ -17,7 +17,7 @@ class DualPipeline(object):
     def open_spider(self, spider):
         url_chunk_path = Path(spider.url_chunk).resolve()
         chunk_id = url_chunk_path.stem.split("_")[-1]
-        run_id = datetime.now().strftime("%d.%m.%Y-%H%M")
+        run_id = datetime.now().strftime("%d.%m.%Y")
         spider.run_id = run_id
 
         output_dir = url_chunk_path.parent
@@ -28,52 +28,14 @@ class DualPipeline(object):
         self._quarantine_path = (
             output_dir_light / f"ARGUS_chunk_{chunk_id}.quarantine.jsonl"
         )
-
-        _STRING_COLS = {
-            "ID",
-            "dl_slot",
-            "alias",
-            "error",
-            "redirect",
-            "start_page",
-            "url",
-            "timestamp",
-            "title",
-            "description",
-            "keywords",
-            "language",
-            "html_path",
-            "text",
-            "links",
-        }
-
-        def _coerce_str(self, v):
-            if v is None:
-                return None
-            if isinstance(v, (bytes, bytearray)):
-                try:
-                    return v.decode("utf-8", "replace")
-                except Exception:
-                    return v.decode("latin-1", "replace")
-            if isinstance(v, (list, tuple, set, dict)):
-                import json
-
-                return json.dumps(v, ensure_ascii=False)  # <- ALWAYS a string now
-            return str(v)
-
-        def _sanitize_row(self, row_dict):
-            r = dict(row_dict)
-            r["dl_rank"] = int(r.get("dl_rank") or 0)
-            for k in self._STRING_COLS:
-                r[k] = self._coerce_str(r.get(k))
-            return r
+        self._duration_path = output_dir_light / 'spider_durations.csv'
 
         # Explicit, stable schema (stringy on purpose; only dl_rank is int)
         self._schema = pa.schema(
             [
                 ("ID", pa.string()),
                 ("dl_rank", pa.int64()),
-                ("dl_slot", pa.string()),  # keep flexible
+                ("dl_slot", pa.string()),
                 ("alias", pa.string()),
                 ("error", pa.string()),
                 ("redirect", pa.string()),
@@ -84,7 +46,7 @@ class DualPipeline(object):
                 ("description", pa.string()),
                 ("keywords", pa.string()),
                 ("language", pa.string()),
-                ("links", pa.list_(pa.string())),
+                ("links", pa.string()),
                 ("html_path", pa.string()),
                 ("text", pa.string()),
             ]
@@ -262,7 +224,7 @@ class DualPipeline(object):
             row["language"] = self._to_str(
                 self._safe_idx(item.get("language"), c, "")
             ).strip()
-            row["links"] = self._to_links(item.get("links") or [])
+            row["links"] = self._coerce_str(self._to_links(item.get('links') or []))
             row["html_path"] = self._to_str(
                 self._safe_idx(item.get("html_path"), c, "")
             )
@@ -271,7 +233,8 @@ class DualPipeline(object):
             # If you want to strip HTML entities/tags, do it here. Keeping as-is:
             row["text"] = self._to_str(text_val)
 
-            self._rows.append(dict(row))
+            # self._rows.append(dict(row))
+            self._rows.append(self._sanitize_row(dict(row)))
 
             # periodic flush
             if (self._written_count + len(self._rows)) % self._BATCH_SIZE == 0:
@@ -299,7 +262,7 @@ class DualPipeline(object):
                     elapsed = (now - start_time).total_seconds()
                 else:
                     elapsed = time.perf_counter() - self._t0
-            # save_spider_duration(spider.name, elapsed)
+            save_spider_duration(spider.name, elapsed, self._duration_path)
         except Exception as e:
             spider.logger.error("Error saving duration: %s", e, exc_info=True)
 
