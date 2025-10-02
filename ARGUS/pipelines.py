@@ -1,15 +1,40 @@
 from pathlib import Path
 from ARGUS.items import DualExporter
 from bin.durations import save_spider_duration
+import filelock
 
 import time
 from datetime import datetime
 import re
 import json
+import os
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+RUN_ID = datetime.now().strftime("%d.%m.%Y")
+
+
+def _flush_batch(self, spider):
+    if not self._rows:
+        return
+    try:
+        table = pa.Table.from_pylist(self._rows, schema=self._schema)
+        part_name = f"part-{self._part_seq:06d}.parquet"
+        final_path = self._parts_dir / part_name
+        tmp_part = final_path.with_suffix(".parquet.tmp")
+
+        pq.write_table(table, tmp_part, compression = 'zstd', use_dictionary = True)
+        os.replace(tmp_part, final_path)
+
+        self._written_count += table.num_rows
+        self._part_seq += 1
+        self._rows.clear()
+        self._final_path = final_path
+    
+    except Exception as e:
+        spider.logger.debug("Batch write failed: %s", e, exec_info = True)
+        self._rows.clear()
 
 class DualPipeline(object):
     _BATCH_SIZE = 2000
@@ -17,18 +42,17 @@ class DualPipeline(object):
     def open_spider(self, spider):
         url_chunk_path = Path(spider.url_chunk).resolve()
         chunk_id = url_chunk_path.stem.split("_")[-1]
-        run_id = datetime.now().strftime("%d.%m.%Y")
-        spider.run_id = run_id
+        spider.run_id = RUN_ID
 
         output_dir = url_chunk_path.parent
-        output_dir_light = output_dir / f"run_id={run_id}/parsed"
-        output_dir_light.mkdir(parents=True, exist_ok=True)
+        out_dir = output_dir / f"run_id={RUN_ID}/parsed"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        self._parquet_path = output_dir_light / f"ARGUS_chunk_{chunk_id}.parquet"
-        self._quarantine_path = (
-            output_dir_light / f"ARGUS_chunk_{chunk_id}.quarantine.jsonl"
-        )
-        self._duration_path = output_dir_light / 'spider_durations.csv'
+        self._parts_dir = out_dir / f"ARGUS_{spider.name}_chunk_{chunk_id}.parts"
+        self._parts_dir.mkdir(parents = True, exist_ok = True)
+
+        self._parquet_path = out_dir / f"ARGUS_chunk_{chunk_id}.parquet"
+        self._duration_path = out_dir / 'spider_durations.csv'
 
         # Explicit, stable schema (stringy on purpose; only dl_rank is int)
         self._schema = pa.schema(
@@ -53,6 +77,7 @@ class DualPipeline(object):
         )
 
         self._rows = []
+        self._part_seq = 0
         self._writer = None
         self._tag_pattern = re.compile(r"<.*?>|&(?:[a-z0-9]+|#\d+);")
         self._t0 = time.perf_counter()
@@ -243,13 +268,49 @@ class DualPipeline(object):
         return item
 
     def close_spider(self, spider):
-        # final flush
-        try:
-            self._flush_batch(spider)
-            if self._writer is not None:
-                self._writer.close()
-        except Exception as e:
-            spider.logger.error("Error finalizing parquet: %s", e, exc_info=True)
+        self._flush_batch(spider)
+        parts = sorted(self._parts_dir.glob("part-*.parquet"))
+        lock = None
+        if filelock is not None:
+            lock = filelock(str(self._final_path)  + ".lock")
+        
+        def _compact():
+            tmp_final = self._final_path.with_suffix(".parquet.tmp")
+            writer = None
+            
+            try:
+                for p in parts: 
+                    pf = pq.ParquetFile(p)
+                    for i in range(pf.num_row_groups):
+                        rg = pf.read_row_group(i)
+                        if writer is None:
+                            writer = pq.ParquetWriter(str(tmp_final), rg.schema, compression = "zstd", use_dictionary = True)
+                        else:
+                            if rg.schema != writer.schema:
+                                rg = rg.cast(writer.schema)
+                        writer.write_table(rg)
+                if writer is not None:
+                    writer.close()
+                    os.replace(tmp_final, self._final_path)
+                    shutil.rmtree(self._parts_dir, ignore_errors = True)
+            except Exception as e:
+                try:
+                    if writer is not None:
+                        writer.close()
+                except Exception:
+                    pass
+                try: 
+                    if tmp_final.exists():
+                        tmp_final.unlink()
+                except Exception:
+                    pass
+
+                if lock:
+                    with lock:
+                        _compact()
+                else:
+                    _compact()
+
 
         # timing / stats
         try:
