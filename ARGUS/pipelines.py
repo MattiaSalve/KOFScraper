@@ -12,47 +12,28 @@ import os
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-RUN_ID = datetime.now().strftime("%d.%m.%Y")
-
-
-def _flush_batch(self, spider):
-    if not self._rows:
-        return
-    try:
-        table = pa.Table.from_pylist(self._rows, schema=self._schema)
-        part_name = f"part-{self._part_seq:06d}.parquet"
-        final_path = self._parts_dir / part_name
-        tmp_part = final_path.with_suffix(".parquet.tmp")
-
-        pq.write_table(table, tmp_part, compression = 'zstd', use_dictionary = True)
-        os.replace(tmp_part, final_path)
-
-        self._written_count += table.num_rows
-        self._part_seq += 1
-        self._rows.clear()
-        self._final_path = final_path
-    
-    except Exception as e:
-        spider.logger.debug("Batch write failed: %s", e, exec_info = True)
-        self._rows.clear()
-
 class DualPipeline(object):
     _BATCH_SIZE = 2000
 
+    RUN_ID = datetime.now().strftime("%d.%m.%Y")
     def open_spider(self, spider):
         url_chunk_path = Path(spider.url_chunk).resolve()
         chunk_id = url_chunk_path.stem.split("_")[-1]
-        spider.run_id = RUN_ID
+
+        run_id = getattr(spider, "run_id", "default_run")
 
         output_dir = url_chunk_path.parent
-        out_dir = output_dir / f"run_id={RUN_ID}/parsed"
+        out_dir = output_dir / f"run_id={run_id}/parsed"
         out_dir.mkdir(parents=True, exist_ok=True)
+
+        self._quarantine_path = out_dir / f"ARGUS_{spider.name}_chunk_{chunk_id}.quarantine.jsonl"
 
         self._parts_dir = out_dir / f"ARGUS_{spider.name}_chunk_{chunk_id}.parts"
         self._parts_dir.mkdir(parents = True, exist_ok = True)
 
         self._parquet_path = out_dir / f"ARGUS_chunk_{chunk_id}.parquet"
         self._duration_path = out_dir / 'spider_durations.csv'
+        self._final_path = out_dir / f"ARGUS_chunk_{chunk_id}.parquet"
 
         # Explicit, stable schema (stringy on purpose; only dl_rank is int)
         self._schema = pa.schema(
@@ -120,7 +101,7 @@ class DualPipeline(object):
             return json.dumps(v, ensure_ascii=False)  # <- ALWAYS a string now
         return str(v)
 
-    def _sanitize_row(self, row_dict):
+    def _sanitize_row(self, row_dict: dict) -> dict:
         r = dict(row_dict)
         r["dl_rank"] = int(r.get("dl_rank") or 0)
         for k in self._STRING_COLS:
@@ -156,21 +137,11 @@ class DualPipeline(object):
             return []
         if not isinstance(v, (list, tuple)):
             v = [v]
-        out = []
-        for x in v:
-            if x is None:
-                continue
-            out.append(str(x))
-        # dedupe while preserving order
-        seen = set()
-        uniq = []
-        for x in out:
-            if x not in seen:
-                seen.add(x)
-                uniq.append(x)
-        return uniq
+        return list(dict.fromkeys(str(x) for x in v if x is not None))
 
     def _open_writer(self):
+        if hasattr(self, "_writer") and self._writer is not None:
+            self._writer.close()
         if self._writer is None:
             self._writer = pq.ParquetWriter(
                 str(self._parquet_path),
@@ -198,7 +169,6 @@ class DualPipeline(object):
             # salvage row-by-row; quarantine the truly bad ones
             self._open_writer()
             with self._quarantine_path.open("a", encoding="utf-8") as qf:
-                keep = []
                 for r in self._rows:
                     try:
                         t = pa.Table.from_pylist([r], schema=self._schema)
@@ -208,7 +178,6 @@ class DualPipeline(object):
                         self._dropped_count += 1
                         spider.logger.warning("Dropping 1 bad row: %s", row_e)
                         qf.write(json.dumps(r, ensure_ascii=False) + "\n")
-                # after salvage, clear buffer
                 self._rows.clear()
 
     # ---------- scrapy hooks
@@ -269,41 +238,40 @@ class DualPipeline(object):
 
     def close_spider(self, spider):
         self._flush_batch(spider)
+        if self._writer is not None:
+            self._writer.close()
         parts = sorted(self._parts_dir.glob("part-*.parquet"))
         lock = None
         if filelock is not None:
-            lock = filelock(str(self._final_path)  + ".lock")
+            lock = filelock.FileLock(str(self._final_path) + ".lock")
         
         def _compact():
             tmp_final = self._final_path.with_suffix(".parquet.tmp")
             writer = None
-            
+
             try:
-                for p in parts: 
+                for p in parts:
                     pf = pq.ParquetFile(p)
                     for i in range(pf.num_row_groups):
                         rg = pf.read_row_group(i)
                         if writer is None:
-                            writer = pq.ParquetWriter(str(tmp_final), rg.schema, compression = "zstd", use_dictionary = True)
-                        else:
-                            if rg.schema != writer.schema:
-                                rg = rg.cast(writer.schema)
+                            writer = pq.ParquetWriter(
+                                str(tmp_final), rg.schema, compression="zstd", use_dictionary=True
+                            )
+                        elif rg.schema != writer.schema:
+                            rg = rg.cast(writer.schema)
                         writer.write_table(rg)
-                if writer is not None:
+
+                if writer:
                     writer.close()
                     os.replace(tmp_final, self._final_path)
-                    shutil.rmtree(self._parts_dir, ignore_errors = True)
+                    shutil.rmtree(self._parts_dir, ignore_errors=True)
             except Exception as e:
-                try:
-                    if writer is not None:
-                        writer.close()
-                except Exception:
-                    pass
-                try: 
-                    if tmp_final.exists():
-                        tmp_final.unlink()
-                except Exception:
-                    pass
+                if writer:
+                    writer.close()
+                if tmp_final.exists():
+                    tmp_final.unlink()
+                raise e
 
                 if lock:
                     with lock:

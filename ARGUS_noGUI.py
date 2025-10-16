@@ -11,7 +11,6 @@ import os
 import sys
 import time
 import subprocess
-from pathlib import Path
 
 # get path to directory
 script_dir = os.path.dirname(__file__)
@@ -20,15 +19,16 @@ script_dir = os.path.dirname(__file__)
 class argus_settings:
     os.chdir(script_dir)  # change working directory to project folder
     filepath = sys.argv[1]  # file path for list containing URLs
+    
 
     # settings for ARGUS spider
     delimiter = ","
     encoding = "utf-8"
-    index_col = "url"  # column with IDs
+    index_col = "BVD"  # column with IDs
     url_col = "url"  # column with URLs
     lang = "German"  # language
-    n_cores = 100  # number of cores
-    limit = 50  # scraping limit
+    n_cores = 200  # number of cores
+    limit = 1  # scraping limit
     log_level = "ERROR"
     prefer_short_urls = "on"
     pdfscrape = "off"

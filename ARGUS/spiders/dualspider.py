@@ -51,6 +51,7 @@ class DualSpider(scrapy.Spider):
         self,
         url_chunk="",
         limit=5,
+        run_id = None,
         ID="ID",
         url_col="url",
         language="",
@@ -62,6 +63,7 @@ class DualSpider(scrapy.Spider):
         super(DualSpider, self).__init__(*args, **kwargs)
 
         self._agg = {}
+        self.run_id = run_id
         self.rows = []
         self.url_chunk = url_chunk
         chunk_path = Path(url_chunk).resolve()
@@ -287,211 +289,30 @@ class DualSpider(scrapy.Spider):
         cleaned = " ".join(" ".join(parts).split())
         return cleaned
 
-    # function which extracts text using tags
-    # def extractText(self, response):
-    #     text = []
-    #     # sometimes "content is not text" is returned and causes strange behaviour
-    #     try:
-    #         # paragraph
-    #         text.append(
-    #             [
-    #                 "p",
-    #                 [
-    #                     "[->p<-] "
-    #                     + " [->p<-] ".join(response.xpath("//p/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             [
-    #                 "div",
-    #                 [
-    #                     # division
-    #                     "[->div<-] "
-    #                     + " [->div<-] ".join(response.xpath("//div/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         # table row
-    #         text.append(
-    #             [
-    #                 "tr",
-    #                 [
-    #                     "[->tr<-] "
-    #                     + " [->tr<-] ".join(response.xpath("//tr/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         # table data
-    #         text.append(
-    #             [
-    #                 "td",
-    #                 [
-    #                     "[->td<-] "
-    #                     + " [->td<-] ".join(response.xpath("//td/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         # table header
-    #         text.append(
-    #             [
-    #                 "th",
-    #                 [
-    #                     "[->th<-] "
-    #                     + " [->th<-] ".join(response.xpath("//th/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         # font size, css should be used (only relevant for old websites)
-    #         text.append(
-    #             [
-    #                 "font",
-    #                 [
-    #                     "[->font<-] "
-    #                     + " [->font<-] ".join(response.xpath("//font/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         # list item
-    #         text.append(
-    #             [
-    #                 "li",
-    #                 [
-    #                     "[->li<-] "
-    #                     + " [->li<-] ".join(response.xpath("//li/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             [
-    #                 "small",
-    #                 [
-    #                     "[->small<-] "
-    #                     + " [->small<-] ".join(
-    #                         # barely emphasized text
-    #                         response.xpath("//small/text()").extract()
-    #                     )
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             [
-    #                 "strong",
-    #                 [
-    #                     "[->strong<-] "
-    #                     + " [->strong<-] ".join(
-    #                         # strongly emphasized text
-    #                         response.xpath("//strong/text()").extract()
-    #                     )
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             # header
-    #             [
-    #                 "h1",
-    #                 [
-    #                     "[->h1<-] "
-    #                     + " [->h1<-] ".join(response.xpath("//h1/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             # header
-    #             [
-    #                 "h2",
-    #                 [
-    #                     "[->h2<-] "
-    #                     + " [->h2<-] ".join(response.xpath("//h2/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             # header
-    #             [
-    #                 "h3",
-    #                 [
-    #                     "[->h3<-] "
-    #                     + " [->h3<-] ".join(response.xpath("//h3/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             # header
-    #             [
-    #                 "h4",
-    #                 [
-    #                     "[->h4<-] "
-    #                     + " [->h4<-] ".join(response.xpath("//h4/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             # header
-    #             [
-    #                 "h5",
-    #                 [
-    #                     "[->h5<-] "
-    #                     + " [->h5<-] ".join(response.xpath("//h5/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             # header
-    #             [
-    #                 "h6",
-    #                 [
-    #                     "[->h6<-] "
-    #                     + " [->h6<-] ".join(response.xpath("//h6/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         text.append(
-    #             [
-    #                 "span",
-    #                 [
-    #                     "[->span<-] "
-    #                     + " [->span<-] ".join(
-    #                         # division for styling
-    #                         response.xpath("//span/text()").extract()
-    #                     )
-    #                 ],
-    #             ]
-    #         )
-    #         # bold text
-    #         text.append(
-    #             [
-    #                 "b",
-    #                 [
-    #                     "[->b<-] "
-    #                     + " [->b<-] ".join(response.xpath("//b/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #         # emphasized text
-    #         text.append(
-    #             [
-    #                 "em",
-    #                 [
-    #                     "[->em<-] "
-    #                     + " [->em<-] ".join(response.xpath("//em/text()").extract())
-    #                 ],
-    #             ]
-    #         )
-    #     except:
-    #         text.append(["leer", ["[->leer<-] leer"]])
-    #     return text
-
     # function which extracts and returns meta information
     def extractHeader(self, response):
-        title = " ".join(response.xpath("//title/text()").extract())
-        description = " ".join(
-            response.xpath("//meta[@name='description']/@content").extract()
-        )
-        keywords = " ".join(
-            response.xpath("//meta[@name='keywords']/@content").extract()
-        )
-        language = " ".join(response.xpath("//html/@lang").extract())
+        # Only parse HTML responses
+        content_type = response.headers.get('Content-Type', b'').lower()
+        if (
+            (content_type.startswith(b'text/html') or content_type.startswith(b'application/xhtml+xml'))
+            and hasattr(response, "xpath")
+        ):
+            try:
+                title = " ".join(response.xpath("//title/text()").extract())
+                description = " ".join(
+                    response.xpath("//meta[@name='description']/@content").extract()
+                )
+                keywords = " ".join(
+                    response.xpath("//meta[@name='keywords']/@content").extract()
+                )
+                language = " ".join(response.xpath("//html/@lang").extract())
+            except Exception:
+                title = description = keywords = language = ""
+        else:
+            title = ""
+            description = ""
+            keywords = ""
+            language = ""
         return title, description, keywords, language
 
     # function which reorders the urlstack, giving highest priority to short urls and language tagged urls
@@ -589,8 +410,34 @@ class DualSpider(scrapy.Spider):
                     "orig_slot": urlsplit(url).netloc,
                 },
                 dont_filter=True,
-                errback=self.errorback,
+                # errback=self.errorback,
+                errback = self.handle_error,
             )
+
+    def handle_error(self, failure):
+        url = getattr(failure.request, "url", "unknown")
+        error_msg = repr(failure.value)
+        # Log to Scrapy log
+        self.logger.error(f"Failed URL: {url} - {error_msg}")
+        # Append to failed_urls.txt in project root
+        with open("/home/msalvetti/KOFScraper/failed_urls.txt", "a") as f:
+            f.write(f"{url}\t{error_msg}\n")
+        # Optionally, yield a minimal item for pipeline tracking
+        loader = ItemLoader(item=DualCollector())
+        loader.add_value("ID", [failure.request.meta.get("ID", "")])
+        loader.add_value("dl_slot", [failure.request.meta.get("orig_slot", "")])
+        loader.add_value("error", [error_msg])
+        loader.add_value("start_page", [url])
+        loader.add_value("scraped_urls", [""])
+        loader.add_value("html_path", [""])
+        loader.add_value("scraped_text", [""])
+        loader.add_value("title", [""])
+        loader.add_value("description", [""])
+        loader.add_value("keywords", [""])
+        loader.add_value("language", [""])
+        loader.add_value("links", [""])
+        loader.add_value("alias", [""])
+        yield loader.load_item()
 
     # errorback creates an collector item, records the error type, and passes it to the pipeline
     def errorback(self, failure):
@@ -697,7 +544,7 @@ class DualSpider(scrapy.Spider):
         # initialize collector item which stores the website's content and meta data
         loader = ItemLoader(item=DualCollector())
         html_clean = (
-            response.body.decode(response.encoding or "utf-8", errors="replace")
+            response.body.decode(getattr(response, "charset", "utf-8"), errors = "replace")
             .replace("\t", "")
             .replace("\n", "")
             .replace("\r", "")
