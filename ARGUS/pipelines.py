@@ -1,13 +1,12 @@
 from pathlib import Path
 from ARGUS.items import DualExporter
 from bin.durations import save_spider_duration
-import filelock
+# filelock and os are no longer needed, as the compaction logic was removed.
 
 import time
 from datetime import datetime
 import re
 import json
-import os
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -15,7 +14,9 @@ import pyarrow.parquet as pq
 class DualPipeline(object):
     _BATCH_SIZE = 2000
 
-    RUN_ID = datetime.now().strftime("%d.%m.%Y")
+    # RUN_ID is set in open_spider from spider attributes
+    # RUN_ID = datetime.now().strftime("%d.%m.%Y")
+    
     def open_spider(self, spider):
         url_chunk_path = Path(spider.url_chunk).resolve()
         chunk_id = url_chunk_path.stem.split("_")[-1]
@@ -27,13 +28,12 @@ class DualPipeline(object):
         out_dir.mkdir(parents=True, exist_ok=True)
 
         self._quarantine_path = out_dir / f"ARGUS_{spider.name}_chunk_{chunk_id}.quarantine.jsonl"
+        
+        # Removed self._parts_dir, as it was unused.
 
-        self._parts_dir = out_dir / f"ARGUS_{spider.name}_chunk_{chunk_id}.parts"
-        self._parts_dir.mkdir(parents = True, exist_ok = True)
-
+        # This is the single, final output file.
         self._parquet_path = out_dir / f"ARGUS_chunk_{chunk_id}.parquet"
         self._duration_path = out_dir / 'spider_durations.csv'
-        self._final_path = out_dir / f"ARGUS_chunk_{chunk_id}.parquet"
 
         # Explicit, stable schema (stringy on purpose; only dl_rank is int)
         self._schema = pa.schema(
@@ -140,8 +140,9 @@ class DualPipeline(object):
         return list(dict.fromkeys(str(x) for x in v if x is not None))
 
     def _open_writer(self):
-        if hasattr(self, "_writer") and self._writer is not None:
-            self._writer.close()
+        # This function ensures the writer is open.
+        # If it's already open, it does nothing.
+        # If it's closed (or None), it opens a new one.
         if self._writer is None:
             self._writer = pq.ParquetWriter(
                 str(self._parquet_path),
@@ -158,15 +159,24 @@ class DualPipeline(object):
     def _flush_batch(self, spider):
         if not self._rows:
             return
+        
         try:
+            # Create the table from the current batch of rows
             table = pa.Table.from_pylist(self._rows, schema=self._schema)
+            
+            # Ensure the writer is open and write the table
             self._open_writer()
             self._writer.write_table(table)
+            
+            # **FIX 1: Update the written count**
+            # This was the main bug. The count was not updated on a successful batch.
+            self._written_count += table.num_rows
+
         except Exception as e:
             spider.logger.error(
                 "Batch write failed; attempting per-row salvage: %s", e, exc_info=True
             )
-            # salvage row-by-row; quarantine the truly bad ones
+            # Salvage row-by-row; quarantine the truly bad ones
             self._open_writer()
             with self._quarantine_path.open("a", encoding="utf-8") as qf:
                 for r in self._rows:
@@ -178,13 +188,22 @@ class DualPipeline(object):
                         self._dropped_count += 1
                         spider.logger.warning("Dropping 1 bad row: %s", row_e)
                         qf.write(json.dumps(r, ensure_ascii=False) + "\n")
-                self._rows.clear()
+        finally:
+            # **FIX 2: Clear the rows**
+            # This ensures rows are not processed again on the next flush.
+            self._rows.clear()
 
     # ---------- scrapy hooks
 
     def process_item(self, item, spider):
         scraped_texts = item.get("scraped_text") or []
         num_pages = len(scraped_texts)
+
+        # If there are no scraped pages, we still process one "row"
+        # which will contain the error information.
+        if num_pages == 0 and item.get("error"):
+             num_pages = 1
+             scraped_texts = [""] # Create a dummy entry to process the error row
 
         for c in range(num_pages):
             url = self._safe_idx(item.get("scraped_urls"), c, "")
@@ -196,7 +215,10 @@ class DualPipeline(object):
             row["dl_rank"] = int(c)  # guaranteed int
             row["dl_slot"] = self._to_str(self._safe_idx(item.get("dl_slot"), 0, None))
             row["alias"] = self._to_str(self._safe_idx(item.get("alias"), 0, ""))
+            
+            # Handle error. If num_pages is 0, this will be the only loop.
             row["error"] = self._to_str(item.get("error"))  # may be list/string/None
+            
             row["redirect"] = self._to_str(self._safe_idx(item.get("redirect"), 0, ""))
             row["start_page"] = self._to_str(
                 self._safe_idx(item.get("start_page"), 0, "")
@@ -231,54 +253,25 @@ class DualPipeline(object):
             self._rows.append(self._sanitize_row(dict(row)))
 
             # periodic flush
-            if (self._written_count + len(self._rows)) % self._BATCH_SIZE == 0:
+            # Use len(self._rows) instead of self._written_count for batch logic
+            if len(self._rows) >= self._BATCH_SIZE:
                 self._flush_batch(spider)
 
         return item
 
     def close_spider(self, spider):
+        # Flush any remaining rows
         self._flush_batch(spider)
+        
+        # Close the writer if it's open
         if self._writer is not None:
             self._writer.close()
-        parts = sorted(self._parts_dir.glob("part-*.parquet"))
-        lock = None
-        if filelock is not None:
-            lock = filelock.FileLock(str(self._final_path) + ".lock")
-        
-        def _compact():
-            tmp_final = self._final_path.with_suffix(".parquet.tmp")
-            writer = None
+            self._writer = None
 
-            try:
-                for p in parts:
-                    pf = pq.ParquetFile(p)
-                    for i in range(pf.num_row_groups):
-                        rg = pf.read_row_group(i)
-                        if writer is None:
-                            writer = pq.ParquetWriter(
-                                str(tmp_final), rg.schema, compression="zstd", use_dictionary=True
-                            )
-                        elif rg.schema != writer.schema:
-                            rg = rg.cast(writer.schema)
-                        writer.write_table(rg)
-
-                if writer:
-                    writer.close()
-                    os.replace(tmp_final, self._final_path)
-                    shutil.rmtree(self._parts_dir, ignore_errors=True)
-            except Exception as e:
-                if writer:
-                    writer.close()
-                if tmp_final.exists():
-                    tmp_final.unlink()
-                raise e
-
-                if lock:
-                    with lock:
-                        _compact()
-                else:
-                    _compact()
-
+        # **FIX 3: Removed the broken compaction logic.**
+        # The pipeline is designed to write to a single file directly.
+        # The logic for 'parts' was non-functional as _parts_dir was never written to.
+        # The single file at self._parquet_path is now the final, correct output.
 
         # timing / stats
         try:
@@ -305,3 +298,4 @@ class DualPipeline(object):
             ),
             f", file: {self._parquet_path}" if self._written_count else "",
         )
+

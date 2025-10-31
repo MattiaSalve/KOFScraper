@@ -1,0 +1,19 @@
+[input-data]
+filepath = /home/msalvetti/KOFScraper/100subset.csv
+delimiter = ,
+encoding = utf-8
+ID = BVD
+url = url
+
+[system]
+n_cores = 10
+
+[spider-settings]
+spider = dual
+limit = 20
+prefer_short_urls = on
+language = German
+log_level = INFO
+maxsize = 10000000
+timeout = 20
+pdfscrape = on

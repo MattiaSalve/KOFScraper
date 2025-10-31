@@ -28,8 +28,8 @@ class argus_settings:
     url_col = "url"  # column with URLs
     lang = "German"  # language
     n_cores = 200  # number of cores
-    limit = 1  # scraping limit
-    log_level = "ERROR"
+    limit = 50  # scraping limit
+    log_level = "INFO"
     prefer_short_urls = "on"
     pdfscrape = "off"
 
@@ -43,5 +43,7 @@ if __name__ == "__main__":
     time.sleep(2)
     # Start crawling
     from bin import start_crawl_steering
+    from bin import proxies
 
+    proxies.fetch_and_validate_proxies()
     start_crawl_steering.start_crawl()

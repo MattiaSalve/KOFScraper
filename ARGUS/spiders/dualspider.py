@@ -50,9 +50,9 @@ class DualSpider(scrapy.Spider):
     def __init__(
         self,
         url_chunk="",
-        limit=5,
+        limit=50,
         run_id = None,
-        ID="ID",
+        ID="BVD",
         url_col="url",
         language="",
         prefer_short_urls="on",
@@ -261,33 +261,45 @@ class DualSpider(scrapy.Spider):
 
         return dom_a != dom_b
 
+    # In your dualspider.py file
+
     def extractText(self, response):
-        parts = []
-        try:
-            parts += response.xpath("//p/text()").getall()
-            parts += response.xpath("//div/text()").getall()
-            parts += response.xpath("//tr/text()").getall()
-            parts += response.xpath("//td/text()").getall()
-            parts += response.xpath("//th/text()").getall()
-            parts += response.xpath("//font/text()").getall()
-            parts += response.xpath("//li/text()").getall()
-            parts += response.xpath("//small/text()").getall()
-            parts += response.xpath("//strong/text()").getall()
-            parts += response.xpath("//h1/text()").getall()
-            parts += response.xpath("//h2/text()").getall()
-            parts += response.xpath("//h3/text()").getall()
-            parts += response.xpath("//h4/text()").getall()
-            parts += response.xpath("//h5/text()").getall()
-            parts += response.xpath("//h6/text()").getall()
-            parts += response.xpath("//span/text()").getall()
-            parts += response.xpath("//b/text()").getall()
-            parts += response.xpath("//em/text()").getall()
+        # This selector gets all text nodes from within the <body> tag,
+        # regardless of how deeply they are nested.
+        all_text_parts = response.xpath('//body//text()').getall()
 
-        except Exception:
-            pass
+        # Join the parts together and clean up whitespace
+        cleaned_text = " ".join(part.strip() for part in all_text_parts if part.strip())
 
-        cleaned = " ".join(" ".join(parts).split())
-        return cleaned
+        return cleaned_text
+
+        # def extractText(self, response):
+        # parts = []
+        # try:
+        #     parts += response.xpath("//p/text()").getall()
+        #     parts += response.xpath("//div/text()").getall()
+        #     parts += response.xpath("//tr/text()").getall()
+        #     parts += response.xpath("//td/text()").getall()
+        #     parts += response.xpath("//th/text()").getall()
+        #     parts += response.xpath("//font/text()").getall()
+        #     parts += response.xpath("//li/text()").getall()
+        #     parts += response.xpath("//small/text()").getall()
+        #     parts += response.xpath("//strong/text()").getall()
+        #     parts += response.xpath("//h1/text()").getall()
+        #     parts += response.xpath("//h2/text()").getall()
+        #     parts += response.xpath("//h3/text()").getall()
+        #     parts += response.xpath("//h4/text()").getall()
+        #     parts += response.xpath("//h5/text()").getall()
+        #     parts += response.xpath("//h6/text()").getall()
+        #     parts += response.xpath("//span/text()").getall()
+        #     parts += response.xpath("//b/text()").getall()
+        #     parts += response.xpath("//em/text()").getall()
+        #
+        # except Exception:
+        #     pass
+        #
+        # cleaned = " ".join(" ".join(parts).split())
+        # return cleaned
 
     # function which extracts and returns meta information
     def extractHeader(self, response):
@@ -778,9 +790,6 @@ class DualSpider(scrapy.Spider):
                 yield scrapy.Request(
                     urlstack.pop(0),
                     meta={
-                        "loader": loader,
-                        "urlstack": urlstack,
-                        "fingerprints": fingerprints,
                         "handle_httpstatus_all": True,
                         **response.meta,
                     },
@@ -799,18 +808,17 @@ class DualSpider(scrapy.Spider):
     ##################################################################
 
     def parse_subpage(self, response):
-        
         k = response.request.meta["agg_key"]
         state = self._agg[k]
+
+        loader = state["loader"]
+
         if fingerprint(response.request) in state["fingerprints"]:
             return self.processURLstack(response)
         state["fingerprints"].add(fingerprint(response.request))
 
-
         # try to catch some errors
         try:
-            # opt out and fall back to processURLstack
-
             # if http client errors
             if response.status > 308:
                 return self.processURLstack(response)
@@ -822,9 +830,9 @@ class DualSpider(scrapy.Spider):
             # skip broken urls
             if response.status == 301:
                 # revive the loader from the response meta data
-                loader = response.meta["loader"]
-                k = response.request.meta["agg_key"]
-                loader = self._agg[k]["loader"]
+                # loader = response.meta["loader"]
+                # k = response.request.meta["agg_key"]
+                # loader = self._agg[k]["loader"]
 
                 # check whether this request was redirected to a allowed url which is actually another firm
                 if loader.get_collected_values("start_domain")[
@@ -839,18 +847,19 @@ class DualSpider(scrapy.Spider):
                     + response.xpath("//frameset/@src").extract()
                 )
                 for url in urls:
-                    response.meta["urlstack"].append(response.urljoin(url))
-                    k = response.request.meta["agg_key"]
-                    self._agg[k]["urlstack"].append(response.urljoin(url))
+                    # response.meta["urlstack"].append(response.urljoin(url))
+                    # k = response.request.meta["agg_key"]
+                    # self._agg[k]["urlstack"].append(response.urljoin(url))
+                    state["urlstack"].append(response.urljoin(url))
 
                 # pass back the updated urlstack
                 return self.processURLstack(response)
 
             if response.status == 302:
                 # revive the loader from the response meta data
-                loader = response.meta["loader"]
-                k = response.request.meta["agg_key"]
-                loader = self._agg[k]["loader"]
+                # loader = response.meta["loader"]
+                # k = response.request.meta["agg_key"]
+                # loader = self._agg[k]["loader"]
 
                 # check whether this request was redirected to a allowed url which is actually another firm
                 if loader.get_collected_values("start_domain")[
@@ -865,9 +874,10 @@ class DualSpider(scrapy.Spider):
                     + response.xpath("//frameset/@src").extract()
                 )
                 for url in urls:
-                    response.meta["urlstack"].append(response.urljoin(url))
-                    k = response.request.meta["agg_key"]
-                    self._agg[k]["urlstack"].append(response.urljoin(url))
+                    # response.meta["urlstack"].append(response.urljoin(url))
+                    # k = response.request.meta["agg_key"]
+                    state["urlstack"].append(response.urljoin(url))
+                    # self._agg[k]["urlstack"].append(response.urljoin(url))
 
                 # pass back the updated urlstack
                 return self.processURLstack(response)
@@ -875,9 +885,9 @@ class DualSpider(scrapy.Spider):
             # if everything is cool, do the normal stuff
             else:
                 # revive the loader from the response meta data
-                loader = response.meta["loader"]
-                k = response.request.meta["agg_key"]
-                loader = self._agg[k]["loader"]
+                # loader = response.meta["loader"]
+                # k = response.request.meta["agg_key"]
+                # loader = self._agg[k]["loader"]
 
                 ID = (
                     loader.get_collected_values("ID")[0]
@@ -900,9 +910,10 @@ class DualSpider(scrapy.Spider):
                     + response.xpath("//frameset/@src").extract()
                 )
                 for url in urls:
-                    response.meta["urlstack"].append(response.urljoin(url))
-                    k = response.request.meta["agg_key"]
-                    self._agg[k]["urlstack"].append(response.urljoin(url))
+                    # response.meta["urlstack"].append(response.urljoin(url))
+                    # k = response.request.meta["agg_key"]
+                    # self._agg[k]["urlstack"].append(response.urljoin(url))
+                    state["urlstack"].append(response.urljoin(url))
 
 
                 # add info to collector item
@@ -922,5 +933,9 @@ class DualSpider(scrapy.Spider):
                 return self.processURLstack(response)
 
         # in case of errors, opt out and fall back to processURLstack
-        except:
+        # except:
+        #     return self.processURLstack(response)
+        # NEW CODE (Reveals the error)
+        except Exception as e:
+            self.logger.error(f"An error occurred while parsing {response.url}: {e}")
             return self.processURLstack(response)

@@ -24,17 +24,17 @@ RETRY_TIMES = 5
 RETRY_ENABLED = True
 RETRY_HTTP_CODES = [500, 502, 503, 504, 522, 524, 408]
 
-ROTATING_PROXY_LIST_PATH = '/home/msalvetti/ProxyGather/working-proxies-2025-10-16_13-44-14-http.txt'
-ROTATING_PROXY_PAGE_RETRY_TIMES = 5
-ROTATING_PROXY_BAN_POLICY = 'rotating_proxies.policy.BanDetectionPolicy'
+# ROTATING_PROXY_LIST_PATH = '/home/msalvetti/ProxyGather/working-proxies-2025-10-16_13-44-14-http.txt'
+# ROTATING_PROXY_PAGE_RETRY_TIMES = 5
+# ROTATING_PROXY_BAN_POLICY = 'rotating_proxies.policy.BanDetectionPolicy'
 
 
-DEFAULT_REQUEST_HEADERS = {
-    "User-Agent": "Mozilla/5.0 ... Chrome/124 Safari/537.36", 
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,de-CH;q=0.8,fr-CH;q=0.8",
-    "Connection": "keep-alive",
-}
+# DEFAULT_REQUEST_HEADERS = {
+#     "User-Agent": "Mozilla/5.0 ... Chrome/124 Safari/537.36", 
+#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+#     "Accept-Language": "en-US,en;q=0.9,de-CH;q=0.8,fr-CH;q=0.8",
+#     "Connection": "keep-alive",
+# }
 COOKIES_ENABLED = True
 
 COMPRESSION_ENABLED = False
@@ -52,10 +52,12 @@ DOWNLOADER_MIDDLEWARES = {
     'rotating_proxies.middlewares.BanDetectionMiddleware': 620,
     'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
     'scrapy_fake_useragent.middleware.RandomUserAgentMiddleware': 400,
+    'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
+    'scrapy_fake_useragent.middleware.RandomUserAgentMiddleware': 400,
 }
 
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.131 Safari/537.36"
+# USER_AGENT = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.131 Safari/537.36"
 
 EXTENSIONS = {"extensions.stats_dump.StatsDump": 500}
 
