@@ -6,3 +6,5 @@ tldextract
 pandas
 pdfminer.six
 pyarrow
+polars
+dask

@@ -19,7 +19,6 @@ script_dir = os.path.dirname(__file__)
 class argus_settings:
     os.chdir(script_dir)  # change working directory to project folder
     filepath = sys.argv[1]  # file path for list containing URLs
-    
 
     # settings for ARGUS spider
     delimiter = ","
@@ -43,7 +42,5 @@ if __name__ == "__main__":
     time.sleep(2)
     # Start crawling
     from bin import start_crawl_steering
-    from bin import proxies
 
-    proxies.fetch_and_validate_proxies()
     start_crawl_steering.start_crawl()

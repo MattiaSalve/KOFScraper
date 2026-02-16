@@ -17,6 +17,7 @@ script_dir_edit = str(script_dir)[:-4]
 
 SCRAPYD_URL = "http://localhost:6800"
 
+
 def after_all_spiders_finished(path):
     """This function runs after all spiders have finished."""
     print("\nAll spiders have finished. Running post-processing...")
@@ -40,13 +41,15 @@ def wait_for_spiders_to_finish(project_name, job_ids, path, poll_interval=10):
             time.sleep(poll_interval)
             continue
 
-        running_ids = {j['id'] for j in data.get('running', [])}
-        pending_ids = {j['id'] for j in data.get('pending', [])}
-        finished_ids = {j['id'] for j in data.get('finished', [])}
+        running_ids = {j["id"] for j in data.get("running", [])}
+        pending_ids = {j["id"] for j in data.get("pending", [])}
+        finished_ids = {j["id"] for j in data.get("finished", [])}
 
         # Remove finished or failed jobs
         for job_id in list(unfinished):
-            if job_id in finished_ids or (job_id not in running_ids and job_id not in pending_ids):
+            if job_id in finished_ids or (
+                job_id not in running_ids and job_id not in pending_ids
+            ):
                 unfinished.remove(job_id)
 
         print(f"Still running: {len(unfinished)} jobs")
@@ -72,9 +75,14 @@ def start_crawl():
     pdfscrape = argus_settings.pdfscrape
     run_id = datetime.now().strftime("%Y-%m-%d")
 
-
     # Read URLs
-    data = pd.read_csv(filepath, delimiter=delimiter, encoding=encoding, on_bad_lines="skip", engine="python")
+    data = pd.read_csv(
+        filepath,
+        delimiter=delimiter,
+        encoding=encoding,
+        on_bad_lines="skip",
+        engine="python",
+    )
 
     # Language ISO handling (unchanged)
     if lang == "None":
@@ -101,7 +109,7 @@ def start_crawl():
 
     p = 1
     for chunk in np.array_split(data, n_url_chunks):
-        chunk.to_csv(
+        pd.DataFrame(chunk).to_csv(
             f"{script_dir_edit}/chunks/url_chunk_p{p}.csv",
             sep=",",
             encoding="utf-8",
@@ -128,12 +136,13 @@ def start_crawl():
         output = subprocess.check_output(curl_cmd, shell=True).decode("utf-8")
         try:
             import json
+
             job_id = json.loads(output).get("jobid")
             if job_id:
                 job_ids.append(job_id)
         except Exception as e:
             print(f"Could not parse job ID for chunk {p}: {e}")
-    
+
     print(f"Scheduled {len(job_ids)} spiders. Opening web interface...")
     webbrowser.open(f"{SCRAPYD_URL}/", new=0, autoraise=True)
 
@@ -141,6 +150,3 @@ def start_crawl():
     out_dir = out_dir / f"chunks/run_id={run_id}/parsed"
     # Wait for spiders to finish, then run function
     wait_for_spiders_to_finish("ARGUS", job_ids, out_dir)
-
-    
-
