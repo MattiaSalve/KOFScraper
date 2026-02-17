@@ -1,0 +1,12 @@
+100subset.csv
+__pychache__/
+build/
+dbs/
+eggs/
+jobdirs/
+logs/
+project.egg-info/
+setup.py/
+systemctl
+twist.pid
+url_panel*
