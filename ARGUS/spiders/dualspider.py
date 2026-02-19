@@ -93,16 +93,10 @@ class DualSpider(scrapy.Spider):
     def from_crawler(cls, crawler, *args, **kwargs):
         spider = super().from_crawler(crawler, *args, **kwargs)
 
-        # generate chunk-specific filename
         chunk_id = Path(spider.url_chunk).stem.split("_")[-1]
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        # warc_dir = Path("/Users/mattiasalvetti/Desktop/KOF/python/ARGUS/warcs/")
-        # warc_dir.mkdir(parents=True, exist_ok=True)
-        # warc_path = warc_dir / f"{spider.name}_chunk_{chunk_id}_{timestamp}"
 
         crawler.settings.set("WEBARCHIVE_ENABLED", True)
-        # crawler.settings.set("WEBARCHIVE_OUTPUT", str(warc_path))
-        # crawler.settings.set("SW_EXPORT_URI", str(warc_path.with_suffix(".wacz")))
 
         return spider
 
@@ -240,14 +234,6 @@ class DualSpider(scrapy.Spider):
                 domain = tld.registered_domain
                 return domain
 
-    # function which checks if there has been a redirect from the starting url
-    # def checkRedirectDomain(self, response):
-    #     return (
-    #         tldextract.extract(response.url).registered_domain
-    #         != tldextract.extract(
-    #             response.request.meta.get("download_slot")
-    #         ).registered_domain
-    #     )
     def checkRedirectDomain(self, response):
         url_a = response.url
         url_b = response.request.meta.get("orig_slot") or urlsplit(response.url).netloc
@@ -272,34 +258,6 @@ class DualSpider(scrapy.Spider):
         cleaned_text = " ".join(part.strip() for part in all_text_parts if part.strip())
 
         return cleaned_text
-
-        # def extractText(self, response):
-        # parts = []
-        # try:
-        #     parts += response.xpath("//p/text()").getall()
-        #     parts += response.xpath("//div/text()").getall()
-        #     parts += response.xpath("//tr/text()").getall()
-        #     parts += response.xpath("//td/text()").getall()
-        #     parts += response.xpath("//th/text()").getall()
-        #     parts += response.xpath("//font/text()").getall()
-        #     parts += response.xpath("//li/text()").getall()
-        #     parts += response.xpath("//small/text()").getall()
-        #     parts += response.xpath("//strong/text()").getall()
-        #     parts += response.xpath("//h1/text()").getall()
-        #     parts += response.xpath("//h2/text()").getall()
-        #     parts += response.xpath("//h3/text()").getall()
-        #     parts += response.xpath("//h4/text()").getall()
-        #     parts += response.xpath("//h5/text()").getall()
-        #     parts += response.xpath("//h6/text()").getall()
-        #     parts += response.xpath("//span/text()").getall()
-        #     parts += response.xpath("//b/text()").getall()
-        #     parts += response.xpath("//em/text()").getall()
-        #
-        # except Exception:
-        #     pass
-        #
-        # cleaned = " ".join(" ".join(parts).split())
-        # return cleaned
 
     # function which extracts and returns meta information
     def extractHeader(self, response):
@@ -432,8 +390,8 @@ class DualSpider(scrapy.Spider):
         # Log to Scrapy log
         self.logger.error(f"Failed URL: {url} - {error_msg}")
         # Append to failed_urls.txt in project root
-        with open("/home/msalvetti/KOFScraper/failed_urls.txt", "a") as f:
-            f.write(f"{url}\t{error_msg}\n")
+        # with open("/home/msalvetti/KOFScraper/failed_urls.txt", "a") as f:
+        #     f.write(f"{url}\t{error_msg}\n")
         # Optionally, yield a minimal item for pipeline tracking
         loader = ItemLoader(item=DualCollector())
         loader.add_value("ID", [failure.request.meta.get("ID", "")])

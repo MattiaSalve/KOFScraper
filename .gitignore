@@ -10,3 +10,4 @@ setup.py/
 systemctl
 twist.pid
 url_panel*
+chunks/*
