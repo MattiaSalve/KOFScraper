@@ -3,6 +3,10 @@
 Web scraper built for KOF's internal use, based on ARGUS and Scrapy.
 
 ## Getting started
+
+**Note for Windows users**: This was developed using Linux, most of it should be fine but if you encounter some errors you're gonna have to diagnose them youselves.
+The kill_all script is in bash so that will not work. I think ChatGPT will translate it to powershell without many problems, otherwise consider installing WSL and join the dark side...
+
 Firstly, clone the repository
 ```sh
 git clone https://github.com/MattiaSalve/KOFScraper.git
