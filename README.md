@@ -30,7 +30,7 @@ scrapyd-deploy default -p ARGUS
 This command compiles any changes to the program and should be run every time something is changed to the program.
 
 ## Running the scraper
-Once the scraper is installed make sure that you are into the root of the project's directory, then 
+Once the scraper is installed make sure that you are into the root of the project's directory and that scrapyd is running, then 
  ```sh
 source .venv/bin/activate
 python3 ARGUR_noGUI.py input_file.csv
