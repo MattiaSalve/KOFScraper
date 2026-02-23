@@ -109,9 +109,10 @@ def start_crawl():
 
     p = 1
     for chunk in np.array_split(data, n_url_chunks):
-        pd.DataFrame(chunk).to_csv(
+        pd.DataFrame(chunk).rename(columns={0: "url", 1: "BVD"}).to_csv(
             f"{script_dir_edit}/chunks/url_chunk_p{p}.csv",
             sep=",",
+            header=False,
             encoding="utf-8",
         )
         p += 1
